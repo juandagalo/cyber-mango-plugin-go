@@ -14,10 +14,6 @@ Both the plugin and the web UI share the same SQLite database, so changes made b
 | **Skills** | Markdown protocols that teach Claude *when* and *how* to use the tools |
 | **Hooks** | SessionStart (board summary) and Stop (activity recap) lifecycle hooks |
 
-## Why Go
-
-The original TypeScript version used `better-sqlite3`, a native C++ module. Claude Code's plugin cache copies files but doesn't run `npm rebuild`, so the compiled binary was missing and the MCP server crashed on every plugin load. Go compiles to a single static binary — no native modules, no `node_modules`, no shell wrappers.
-
 ## Tools
 
 | Tool | Description |
