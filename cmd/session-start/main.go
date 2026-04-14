@@ -33,44 +33,43 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Build the system message
+	// Build the system message (plain text — Claude Code does not render markdown in hook output)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Cyber Mango Board: %s\n\n", summary.BoardName))
+	sb.WriteString(fmt.Sprintf("Cyber Mango Board: %s\n\n", summary.BoardName))
 	sb.WriteString(fmt.Sprintf("Total cards: %d\n\n", summary.TotalCards))
 
-	sb.WriteString("### Columns\n")
+	sb.WriteString("Columns\n")
 	for _, col := range summary.Columns {
 		wipStr := ""
 		if col.WipLimit != nil {
 			wipStr = fmt.Sprintf(" (WIP: %d/%d)", col.CardCount, *col.WipLimit)
 		}
-		sb.WriteString(fmt.Sprintf("- **%s**: %d cards%s\n", col.ColumnName, col.CardCount, wipStr))
+		sb.WriteString(fmt.Sprintf("  %s: %d cards%s\n", col.ColumnName, col.CardCount, wipStr))
 	}
 
 	if summary.ByPriority["critical"] > 0 || summary.ByPriority["high"] > 0 {
-		sb.WriteString("\n### Priority Alerts\n")
+		sb.WriteString("\nPriority Alerts\n")
 		if summary.ByPriority["critical"] > 0 {
-			sb.WriteString(fmt.Sprintf("- 🔴 Critical: %d\n", summary.ByPriority["critical"]))
-			// List critical cards
+			sb.WriteString(fmt.Sprintf("  CRITICAL: %d\n", summary.ByPriority["critical"]))
 			board, err := services.GetBoard(database, "")
 			if err == nil {
 				for _, col := range board.Columns {
 					for _, card := range col.Cards {
 						if card.Priority == "critical" {
-							sb.WriteString(fmt.Sprintf("  - [%s] %s\n", col.Name, card.Title))
+							sb.WriteString(fmt.Sprintf("    - [%s] %s\n", col.Name, card.Title))
 						}
 					}
 				}
 			}
 		}
 		if summary.ByPriority["high"] > 0 {
-			sb.WriteString(fmt.Sprintf("- 🟡 High: %d\n", summary.ByPriority["high"]))
+			sb.WriteString(fmt.Sprintf("  HIGH: %d\n", summary.ByPriority["high"]))
 			board, err := services.GetBoard(database, "")
 			if err == nil {
 				for _, col := range board.Columns {
 					for _, card := range col.Cards {
 						if card.Priority == "high" {
-							sb.WriteString(fmt.Sprintf("  - [%s] %s\n", col.Name, card.Title))
+							sb.WriteString(fmt.Sprintf("    - [%s] %s\n", col.Name, card.Title))
 						}
 					}
 				}
