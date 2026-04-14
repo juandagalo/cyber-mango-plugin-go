@@ -11,6 +11,22 @@ You have access to a Cyber Mango kanban board via MCP tools. This skill defines 
 
 At the start of every session, call `get_board_summary` immediately. This gives you a snapshot of the current board state — how many cards are in each column, their priorities, and any WIP limits in effect. Do not wait for the user to ask. This context is required before you can answer any work-related question accurately.
 
+## Project Tagging
+
+Every card must be tagged with the current project name. Before creating a card, detect the project name by running:
+
+```bash
+git remote get-url origin 2>/dev/null
+```
+
+Extract the repository name from the URL (the last path segment, without `.git`). For example:
+- `https://github.com/juandagalo/cyber-mango.git` -> `cyber-mango`
+- `git@github.com:juandagalo/my-app.git` -> `my-app`
+
+Pass the extracted name as the `tags` parameter when calling `create_card`. If additional tags are needed (e.g., `bug`, `feature`), combine them: `tags: "my-project,bug"`.
+
+If there is no git remote (not a git repo), omit the project tag.
+
 ## When to Create Cards
 
 Create a card whenever:
