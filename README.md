@@ -49,12 +49,19 @@ The original TypeScript version used `better-sqlite3`, a native C++ module. Clau
 ```bash
 git clone https://github.com/juandagalo/cyber-mango-plugin-go.git
 cd cyber-mango-plugin-go
-go build -o bin/mcp-server.exe ./cmd/mcp-server
-go build -o bin/session-start.exe ./cmd/session-start
-go build -o bin/session-stop.exe ./cmd/session-stop
+make build
 ```
 
-On Linux/macOS, drop the `.exe` extension or use `make build` if `make` is available.
+This produces three binaries in `bin/`: `mcp-server`, `session-start`, `session-stop` (with `.exe` on Windows). The Makefile detects the OS automatically.
+
+If you don't have `make`, build manually:
+
+```bash
+mkdir -p bin
+go build -o bin/mcp-server ./cmd/mcp-server
+go build -o bin/session-start ./cmd/session-start
+go build -o bin/session-stop ./cmd/session-stop
+```
 
 ### Install as Plugin
 
