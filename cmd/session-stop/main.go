@@ -12,8 +12,23 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+func parseDbPath() string {
+	for i, arg := range os.Args {
+		if arg == "--db-path" && i+1 < len(os.Args) {
+			v := os.Args[i+1]
+			if v != "" && !strings.HasPrefix(v, "${") {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
 func main() {
-	dbPath := db.ResolveDbPath()
+	dbPath := parseDbPath()
+	if dbPath == "" {
+		dbPath = db.ResolveDbPath()
+	}
 
 	database, err := db.Open(dbPath)
 	if err != nil {
