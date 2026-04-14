@@ -75,6 +75,7 @@ func (h *Handlers) CreateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 		title,
 		req.GetString("description", ""),
 		req.GetString("priority", ""),
+		req.GetString("tags", ""),
 	)
 	if err != nil {
 		return errResult(err.Error()), nil

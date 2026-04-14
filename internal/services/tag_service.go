@@ -63,6 +63,28 @@ func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
 	return &models.Tag{ID: id, BoardID: boardID, Name: name, Color: color, CreatedAt: now}, nil
 }
 
+// FindOrCreateTag returns an existing tag by name on the board, or creates it with the default color.
+func FindOrCreateTag(db *sqlx.DB, boardID, name string) (*models.Tag, error) {
+	if name == "" {
+		return nil, fmt.Errorf("VALIDATION: tag name is required")
+	}
+	if boardID == "" {
+		board, err := ResolveBoard(db, "")
+		if err != nil {
+			return nil, err
+		}
+		boardID = board.ID
+	}
+
+	var existing models.Tag
+	err := db.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name)
+	if err == nil {
+		return &existing, nil
+	}
+
+	return createTag(db, boardID, name, "#3b82f6")
+}
+
 func assignTag(db *sqlx.DB, cardID, tagID string) (map[string]interface{}, error) {
 	if cardID == "" || tagID == "" {
 		return nil, fmt.Errorf("VALIDATION: card_id and tag_id are required")

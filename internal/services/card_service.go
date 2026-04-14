@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -10,7 +11,8 @@ import (
 )
 
 // CreateCard creates a new card. Resolves column by ID or name.
-func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority string) (*models.Card, error) {
+// If tags is non-empty, it is a comma-separated list of tag names to auto-create and assign.
+func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority, tags string) (*models.Card, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
@@ -55,6 +57,22 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 	}
 
 	LogActivity(db, board.ID, &id, "card_created", fmt.Sprintf("Created card: %s", title), "")
+
+	if tags != "" {
+		for _, raw := range strings.Split(tags, ",") {
+			tagName := strings.TrimSpace(raw)
+			if tagName == "" {
+				continue
+			}
+			tag, err := FindOrCreateTag(db, board.ID, tagName)
+			if err != nil {
+				continue
+			}
+			db.Exec(`INSERT OR IGNORE INTO card_tags (card_id, tag_id) VALUES (?, ?)`, id, tag.ID)
+			card.Tags = append(card.Tags, *tag)
+		}
+	}
+
 	return card, nil
 }
 

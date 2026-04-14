@@ -39,6 +39,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("board_id", mcp.Description("Board ID")),
 		mcp.WithString("description", mcp.Description("Card description")),
 		mcp.WithString("priority", mcp.Description("Priority: low, medium, high, critical")),
+		mcp.WithString("tags", mcp.Description("Comma-separated tag names to auto-create and assign")),
 	), h.CreateCard)
 
 	// 5. update_card
