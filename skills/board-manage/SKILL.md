@@ -1,0 +1,101 @@
+---
+name: board-manage
+description: Kanban board management protocol — when and how to create, move, and manage cards on the Cyber Mango board.
+---
+
+# Board Management Protocol
+
+You have access to a Cyber Mango kanban board via MCP tools. This skill defines exactly how and when you use them. Follow these rules without exception.
+
+## Session Start Protocol
+
+At the start of every session, call `get_board_summary` immediately. This gives you a snapshot of the current board state — how many cards are in each column, their priorities, and any WIP limits in effect. Do not wait for the user to ask. This context is required before you can answer any work-related question accurately.
+
+## When to Create Cards
+
+Create a card whenever:
+- The user mentions starting a new feature, bug fix, task, refactor, spike, or investigation
+- The user mentions work they are about to do or have been doing
+- A concrete action item emerges from the conversation that someone is responsible for
+
+Do not wait for the user to explicitly ask you to create a card. If the user says "I'm going to fix the login bug", create the card proactively, then confirm it was created.
+
+Before creating any card, call `get_board` and search the results for an existing card that matches the work item. If one exists, update it instead of creating a duplicate.
+
+## Column Definitions and Workflow
+
+The default board has five columns. Use them as follows:
+
+- **Backlog**: Ideas, future work, parked items, anything not yet committed to. Use this as the default column when the user mentions something without implying they are starting it now.
+- **To Do**: Committed work that is ready to start. The user has decided this will be done in the near term.
+- **In Progress**: Actively being worked on right now. Only one or a small number of cards should be here at once.
+- **Review**: Work that is complete from the implementer's side but waiting for feedback, code review, QA, or approval.
+- **Done**: Completed and verified. The acceptance criteria have been met.
+
+Never skip columns without a stated reason. If a card jumps from Backlog to Done, that is a data quality problem unless the user explicitly confirms it is correct.
+
+## Movement Protocol
+
+Move cards when the work state changes:
+
+- When you or the user start working on something: move to **In Progress**
+- When implementation is complete and feedback is needed: move to **Review**
+- When the work is accepted and verified: move to **Done**
+- When work is blocked or paused: move back to **To Do** and add the `blocked` tag
+
+Always call `move_card` immediately when you detect a state transition. Do not batch movements. Do not assume the card is already in the right column — verify first.
+
+## Priority Convention
+
+Assign priorities based on urgency and impact:
+
+- **low**: Nice-to-have, exploratory, no deadline pressure. Default for spikes and research.
+- **medium**: Normal work items with no special urgency. This is the DEFAULT priority when none is specified.
+- **high**: Blocking other work, has a hard deadline, or is important enough that delay has real consequences.
+- **critical**: Production incidents, security vulnerabilities, data loss risks, or anything that requires immediate action regardless of other work.
+
+If the user does not specify a priority, use **medium**. If the user uses words like "urgent", "blocking", or "ASAP", use **high**. If they mention production, outages, or security breaches, use **critical**.
+
+## Tag Conventions
+
+Use tags to classify cards with additional context:
+
+- `bug`: Something is broken and needs fixing
+- `feature`: New functionality being added
+- `chore`: Maintenance, tooling, dependency updates, refactors with no behavior change
+- `blocked`: Work cannot proceed until something else resolves
+- `spike`: Time-boxed investigation or proof of concept with no guaranteed deliverable
+
+Assign tags via `manage_tags`. A card can have multiple tags. Tags help filter and prioritize the board — use them consistently.
+
+## WIP Limit Enforcement
+
+Before adding a card to a column that has a WIP limit, call `get_board` and count the current cards in that column. If the column is at capacity:
+
+1. Warn the user explicitly: "The [column name] column is at its WIP limit of [N]. Adding another card would exceed it."
+2. Ask if they want to proceed anyway or move an existing card first.
+3. Do not move the card until the user confirms.
+
+Never silently exceed a WIP limit.
+
+## Card Descriptions
+
+Every card description must contain enough context for a human to understand the task without reading the surrounding chat history. Include:
+
+- What needs to be done (one clear sentence)
+- Why it matters or what problem it solves
+- Any relevant technical context (file paths, services, endpoints)
+- Acceptance criteria if known
+
+Do not write vague descriptions like "fix the bug" or "implement the feature". A card description must stand alone.
+
+## Update Protocol
+
+When returning to work on an existing item:
+
+1. Call `get_board` to find the card by searching titles and descriptions
+2. If found, use `update_card` to update the title, description, or priority as needed
+3. If not found, create a new card
+4. Never create a duplicate card for the same work item
+
+If you are unsure whether a card exists, search before creating. A board cluttered with duplicates is worse than a missing card.

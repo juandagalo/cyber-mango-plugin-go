@@ -1,0 +1,15 @@
+{
+  "name": "cyber-mango-marketplace",
+  "owner": { "name": "Daniel Garcia (juandagalo)" },
+  "plugins": [
+    {
+      "name": "cyber-mango",
+      "source": "./",
+      "description": "Cyberpunk kanban board — manage tasks via MCP tools, skills, and hooks",
+      "version": "0.2.0",
+      "author": { "name": "Daniel Garcia (juandagalo)" },
+      "keywords": ["kanban", "board", "cyberpunk"],
+      "category": "productivity"
+    }
+  ]
+}

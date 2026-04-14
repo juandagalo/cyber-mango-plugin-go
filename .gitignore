@@ -1,0 +1,53 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+*.o
+*.a
+*.test
+*.out
+
+# Dependency directory
+vendor/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# SQLite databases (runtime data)
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Unexpanded template string artifacts
+${*}*
+
+# Environment / local config
+.env
+.env.*
+
+# Claude Code local configs (machine-specific)
+.atl/
+
+# Plugin cache and runtime artifacts
+test-results/
+tmp/
+*.log
+
+# OS files
+desktop.ini
+ehthumbs.db
+
+# PROMPT.md is intentionally excluded from git
+PROMPT.md

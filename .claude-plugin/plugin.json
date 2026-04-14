@@ -1,0 +1,6 @@
+{
+  "name": "cyber-mango",
+  "version": "0.2.0",
+  "description": "Cyberpunk kanban board for Claude Code — manage tasks via MCP tools",
+  "author": { "name": "Daniel Garcia (juandagalo)" }
+}
