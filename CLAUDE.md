@@ -59,7 +59,7 @@ Do NOT run `make build` after code changes automatically — only build when exp
 
 ### MCP Config (.mcp.json)
 
-Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PATH` and `CLAUDE_PLUGIN_DATA` env vars.
+Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PATH` env var.
 
 ### Hooks (hooks/)
 
@@ -80,8 +80,9 @@ Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PAT
 ### Path Resolution (in order)
 
 1. `CYBER_MANGO_DB_PATH` env var
-2. `CLAUDE_PLUGIN_DATA/kanban.db` (set by Claude Code for plugins)
-3. `~/.cyber-mango/kanban.db` (default shared location)
+2. `~/.cyber-mango/kanban.db` (default shared location)
+
+`CLAUDE_PLUGIN_DATA` is intentionally NOT used — hooks cannot reliably access it (no `env` field in `hooks.json`, inline `${VAR}` substitution broken for SessionStart), which causes MCP server and hooks to diverge to different DBs.
 
 The `isResolved()` guard in `connection.go` rejects unexpanded template strings like `${VAR}` — Claude Code passes these literally when the underlying env var is not set.
 
@@ -113,7 +114,7 @@ On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (
 | `list_boards` | — | — |
 | `get_board` | — | board_id |
 | `get_board_summary` | — | board_id |
-| `create_card` | title | column_id, column_name, board_id, description, priority |
+| `create_card` | title | column_id, column_name, board_id, description, priority, tags |
 | `update_card` | card_id | title, description, priority |
 | `move_card` | card_id | column_id, column_name, board_id, position |
 | `delete_card` | card_id | — |
@@ -128,7 +129,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 17 tests total: 6 in `internal/db`, 11 in `internal/services`
+- 20 tests total: 6 in `internal/db`, 14 in `internal/services`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -136,6 +137,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 ## Gotchas
 
 - **Hook output is plain text** — Claude Code does NOT render markdown in hook `systemMessage`. Use CAPS and indentation for visual hierarchy, never `##`, `**`, or emojis.
+- **Hooks don't support `env` field** — Unlike `.mcp.json`, `hooks.json` has no `env` field. Inline `${VAR}` substitution is also broken for SessionStart hooks (known Claude Code bugs). This is why `CLAUDE_PLUGIN_DATA` is excluded from DB path resolution — both MCP server and hooks must converge on `~/.cyber-mango/kanban.db`.
 - **Version lives in 3 places** — `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `internal/mcp/server.go` (`NewMCPServer("cyber-mango", "0.2.0", ...)`). Keep them in sync on version bumps.
 - **`.mcp.json` shows "Failed to connect" inside the plugin source dir** — `${CLAUDE_PLUGIN_ROOT}` isn't set when working inside the plugin repo itself. This is expected. The plugin entry works from any other directory.
 - **Double slash in resolved path** — `source: "./"` in marketplace.json can produce `C:/path//bin/mcp-server.exe`. Harmless.

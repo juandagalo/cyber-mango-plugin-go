@@ -29,10 +29,9 @@ func TestResolveDbPath_EnvVar(t *testing.T) {
 
 func TestResolveDbPath_UnexpandedTemplate(t *testing.T) {
 	t.Setenv("CYBER_MANGO_DB_PATH", "${CYBER_MANGO_DB_PATH}")
-	t.Setenv("CLAUDE_PLUGIN_DATA", "${CLAUDE_PLUGIN_DATA}")
 	got := ResolveDbPath()
 	// Should fall through to ~/.cyber-mango/kanban.db
-	if got == "${CYBER_MANGO_DB_PATH}" || got == "${CLAUDE_PLUGIN_DATA}" {
+	if got == "${CYBER_MANGO_DB_PATH}" {
 		t.Errorf("unexpanded template not rejected: %q", got)
 	}
 }

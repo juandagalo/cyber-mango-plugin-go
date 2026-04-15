@@ -18,14 +18,14 @@ func isResolved(v string) bool {
 
 // ResolveDbPath returns the database path using this priority:
 // 1. CYBER_MANGO_DB_PATH env var
-// 2. CLAUDE_PLUGIN_DATA/kanban.db
-// 3. ~/.cyber-mango/kanban.db
+// 2. ~/.cyber-mango/kanban.db (shared by MCP server, hooks, and web UI)
+//
+// CLAUDE_PLUGIN_DATA is intentionally NOT used — hooks cannot reliably
+// access it (no env field in hooks.json, inline substitution broken for
+// SessionStart), which causes MCP server and hooks to diverge to different DBs.
 func ResolveDbPath() string {
 	if v := os.Getenv("CYBER_MANGO_DB_PATH"); isResolved(v) {
 		return v
-	}
-	if v := os.Getenv("CLAUDE_PLUGIN_DATA"); isResolved(v) {
-		return filepath.Join(v, "kanban.db")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
