@@ -95,6 +95,7 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 - `card_tags` — card_id + tag_id (composite PK, both FK with CASCADE)
 - `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp
 - `_meta` — key/value for schema versioning (current: "1")
+- `__drizzle_migrations` — Drizzle ORM journal (seeded by Go plugin so web UI recognizes schema)
 
 ### Pragmas (applied on every Open)
 

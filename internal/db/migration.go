@@ -22,12 +22,43 @@ func RunMigrations(db *sqlx.DB) error {
 		if err := createSchema(db); err != nil {
 			return err
 		}
-		_, err = db.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion)
-		return err
+		if _, err = db.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {
+			return err
+		}
 	}
 
 	// Future migrations: check version and ALTER TABLE as needed
+
+	// Ensure Drizzle migration journal exists so the web UI won't re-run CREATE TABLE.
+	// The web UI uses Drizzle ORM which tracks applied migrations in __drizzle_migrations.
+	// Without this, whoever touches the DB first (Go plugin vs web UI) breaks the other.
+	if err := ensureDrizzleJournal(db); err != nil {
+		return fmt.Errorf("drizzle journal: %w", err)
+	}
+
 	return nil
+}
+
+// ensureDrizzleJournal creates the __drizzle_migrations table and marks the
+// initial migration as applied, so Drizzle ORM (used by the web UI) recognizes
+// that the schema already exists and skips CREATE TABLE statements.
+func ensureDrizzleJournal(db *sqlx.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		hash TEXT NOT NULL,
+		created_at BIGINT
+	)`)
+	if err != nil {
+		return err
+	}
+
+	// Check if the initial migration is already recorded
+	var count int
+	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
+	if count == 0 {
+		_, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`)
+	}
+	return err
 }
 
 func createSchema(db *sqlx.DB) error {
