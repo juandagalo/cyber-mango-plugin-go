@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/db"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
 	"github.com/jmoiron/sqlx"
 )
+
+const metaKey = "last_stop_report"
 
 func main() {
 	dbPath := db.ResolveDbPath()
@@ -21,12 +22,18 @@ func main() {
 	}
 	defer database.Close()
 
-	since := time.Now().UTC().Add(-30 * time.Minute).Format(time.RFC3339)
-	activities := queryRecentActivity(database, since)
+	// Read the last reported timestamp from _meta
+	var since string
+	database.QueryRow(`SELECT value FROM _meta WHERE key = ?`, metaKey).Scan(&since)
 
+	activities := queryNewActivity(database, since)
 	if len(activities) == 0 {
 		os.Exit(0)
 	}
+
+	// Save the newest activity timestamp as the new watermark
+	newest := activities[0].CreatedAt // ordered DESC, first is newest
+	database.Exec(`INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)`, metaKey, newest)
 
 	// Count by action type
 	counts := map[string]int{}
@@ -35,8 +42,6 @@ func main() {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## Session Activity (last 30 min)\n\n")
-
 	actionLabels := []struct{ key, label string }{
 		{"card_created", "Cards created"},
 		{"card_updated", "Cards updated"},
@@ -46,7 +51,7 @@ func main() {
 	}
 	for _, al := range actionLabels {
 		if n := counts[al.key]; n > 0 {
-			sb.WriteString(fmt.Sprintf("- %s: %d\n", al.label, n))
+			sb.WriteString(fmt.Sprintf("  %s: %d\n", al.label, n))
 		}
 	}
 
@@ -58,8 +63,12 @@ func main() {
 	fmt.Println(string(data))
 }
 
-func queryRecentActivity(db *sqlx.DB, since string) []models.ActivityLog {
+func queryNewActivity(db *sqlx.DB, since string) []models.ActivityLog {
 	var logs []models.ActivityLog
-	db.Select(&logs, `SELECT id, board_id, card_id, action, details, agent, created_at FROM activity_log WHERE created_at >= ? ORDER BY created_at DESC`, since)
+	if since == "" {
+		db.Select(&logs, `SELECT id, board_id, card_id, action, details, agent, created_at FROM activity_log ORDER BY created_at DESC`)
+	} else {
+		db.Select(&logs, `SELECT id, board_id, card_id, action, details, agent, created_at FROM activity_log WHERE created_at > ? ORDER BY created_at DESC`, since)
+	}
 	return logs
 }
