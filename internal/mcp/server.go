@@ -6,7 +6,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// NewServer creates and configures the MCP server with all 9 tools registered.
+// NewServer creates and configures the MCP server with all 10 tools registered.
 func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer("cyber-mango", "0.2.0",
 		mcpserver.WithToolCapabilities(true),
@@ -40,15 +40,20 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("description", mcp.Description("Card description")),
 		mcp.WithString("priority", mcp.Description("Priority: low, medium, high, critical")),
 		mcp.WithString("tags", mcp.Description("Comma-separated tag names to auto-create and assign")),
+		mcp.WithString("phase_id", mcp.Description("Phase ID")),
+		mcp.WithString("phase_name", mcp.Description("Phase name (case-insensitive)")),
 	), h.CreateCard)
 
 	// 5. update_card
 	s.AddTool(mcp.NewTool("update_card",
-		mcp.WithDescription("Update a card title, description, or priority"),
+		mcp.WithDescription("Update a card title, description, priority, or phase"),
 		mcp.WithString("card_id", mcp.Required(), mcp.Description("Card ID")),
 		mcp.WithString("title", mcp.Description("New title")),
 		mcp.WithString("description", mcp.Description("New description")),
 		mcp.WithString("priority", mcp.Description("New priority: low, medium, high, critical")),
+		mcp.WithString("phase_id", mcp.Description("Phase ID")),
+		mcp.WithString("phase_name", mcp.Description("Phase name (case-insensitive)")),
+		mcp.WithBoolean("unset_phase", mcp.Description("Set to true to remove phase from card")),
 	), h.UpdateCard)
 
 	// 6. move_card
@@ -76,7 +81,18 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithNumber("wip_limit", mcp.Description("WIP limit (optional)")),
 	), h.CreateColumn)
 
-	// 9. manage_tags
+	// 9. manage_phases
+	s.AddTool(mcp.NewTool("manage_phases",
+		mcp.WithDescription("Manage workflow phases on a board (list, create, update, delete, reorder)"),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action: list, create, update, delete, reorder")),
+		mcp.WithString("board_id", mcp.Description("Board ID")),
+		mcp.WithString("phase_id", mcp.Description("Phase ID")),
+		mcp.WithString("name", mcp.Description("Phase name")),
+		mcp.WithString("color", mcp.Description("Hex color (e.g. #00FFFF)")),
+		mcp.WithString("ordered_ids", mcp.Description("JSON array of phase IDs for reorder (e.g. [\"id1\",\"id2\"])")),
+	), h.ManagePhases)
+
+	// 10. manage_tags
 	s.AddTool(mcp.NewTool("manage_tags",
 		mcp.WithDescription("Create, assign, remove, list, or delete tags"),
 		mcp.WithString("action", mcp.Required(), mcp.Description("Action: create, assign, remove, list, delete")),

@@ -76,6 +76,8 @@ func (h *Handlers) CreateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 		req.GetString("description", ""),
 		req.GetString("priority", ""),
 		req.GetString("tags", ""),
+		req.GetString("phase_id", ""),
+		req.GetString("phase_name", ""),
 	)
 	if err != nil {
 		return errResult(err.Error()), nil
@@ -89,11 +91,23 @@ func (h *Handlers) UpdateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 	if cardID == "" {
 		return errResult("VALIDATION: card_id is required"), nil
 	}
+	var unsetPhase bool
+	if args := req.GetArguments(); args != nil {
+		if v, ok := args["unset_phase"]; ok {
+			if b, ok := v.(bool); ok {
+				unsetPhase = b
+			}
+		}
+	}
+
 	card, err := services.UpdateCard(
 		h.db, cardID,
 		req.GetString("title", ""),
 		req.GetString("description", ""),
 		req.GetString("priority", ""),
+		req.GetString("phase_id", ""),
+		req.GetString("phase_name", ""),
+		unsetPhase,
 	)
 	if err != nil {
 		return errResult(err.Error()), nil
@@ -179,6 +193,37 @@ func (h *Handlers) CreateColumn(ctx context.Context, req mcp.CallToolRequest) (*
 		return errResult(err.Error()), nil
 	}
 	return jsonResult(col)
+}
+
+// ManagePhases handles the manage_phases tool.
+func (h *Handlers) ManagePhases(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	action := req.GetString("action", "")
+	if action == "" {
+		return errResult("VALIDATION: action is required"), nil
+	}
+
+	var orderedIDs []string
+	if action == "reorder" {
+		raw := req.GetString("ordered_ids", "")
+		parsed, err := services.ParseOrderedIDs(raw)
+		if err != nil {
+			return errResult(err.Error()), nil
+		}
+		orderedIDs = parsed
+	}
+
+	result, err := services.ManagePhases(
+		h.db, action,
+		req.GetString("board_id", ""),
+		req.GetString("phase_id", ""),
+		req.GetString("name", ""),
+		req.GetString("color", ""),
+		orderedIDs,
+	)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+	return jsonResult(result)
 }
 
 // ManageTags handles the manage_tags tool.
