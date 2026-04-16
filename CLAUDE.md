@@ -46,8 +46,8 @@ Do NOT run `make build` after code changes automatically — only build when exp
 | Package | Files | Purpose |
 |---------|-------|---------|
 | `db` | `connection.go`, `migration.go`, `seed.go`, `db_test.go` | DB connection with pragmas (WAL, FK, busy_timeout), schema migration (versioned via `_meta` table), default board seed. |
-| `models` | `models.go` | Data structs: Board, Column, Card, Tag, ActivityLog, BoardSummary, ColumnSummary. All use `db:` and `json:` struct tags. |
-| `services` | `board_service.go`, `card_service.go`, `column_service.go`, `tag_service.go`, `activity_service.go`, `services_test.go` | Business logic. All functions take `*sqlx.DB` as first arg (no service structs). Activity logging on every write operation. |
+| `models` | `models.go` | Data structs: Board, Column, Card, Phase, Tag, ActivityLog, BoardSummary, ColumnSummary. All use `db:` and `json:` struct tags. |
+| `services` | `board_service.go`, `card_service.go`, `column_service.go`, `tag_service.go`, `phase_service.go`, `activity_service.go`, `services_test.go` | Business logic. All functions take `*sqlx.DB` as first arg (no service structs). Activity logging on every write operation. |
 | `mcp` | `server.go`, `handlers.go` | MCP tool registration and handler dispatch. `Handlers` struct holds `*sqlx.DB`. Uses `req.GetString(key, "")` (mcp-go v0.44.0 API). |
 
 ### Plugin Metadata (.claude-plugin/)
@@ -63,10 +63,11 @@ Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PAT
 
 ### Hooks (hooks/)
 
-| Event | Binary | Timeout | Output |
-|-------|--------|---------|--------|
-| `SessionStart` | `session-start.exe` | 10s | Board summary (card counts, priority alerts) |
-| `Stop` | `session-stop.exe` | 5s | Activity summary (last 30 min actions) |
+| Event | Binary/Command | Timeout | Output |
+|-------|----------------|---------|--------|
+| `SessionStart` | `session-start.exe` | 10s | Board summary (card counts, priority alerts, phase breakdown) |
+| `Stop` | `session-stop.exe` | 5s | Activity summary (card + phase actions) |
+| `PostToolUse` (mem_save) | inline echo | 3s | Reminder to check if board needs updating after engram save |
 
 ### Skills (skills/)
 
@@ -86,15 +87,16 @@ Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PAT
 
 The `isResolved()` guard in `connection.go` rejects unexpanded template strings like `${VAR}` — Claude Code passes these literally when the underlying env var is not set.
 
-### Schema (6 tables + meta)
+### Schema (7 tables + meta)
 
 - `boards` — id, name, description, timestamps
 - `columns` — id, board_id (FK), name, color, wip_limit, position (REAL), timestamps
-- `cards` — id, column_id (FK), title, description, priority (CHECK: low/medium/high/critical), position (REAL), parent_card_id, due_date, timestamps
+- `phases` — id, board_id (FK), name, color, position (REAL), timestamps. Unique index on (board_id, name).
+- `cards` — id, column_id (FK), title, description, priority (CHECK: low/medium/high/critical), position (REAL), parent_card_id, due_date, phase_id (FK nullable, ON DELETE SET NULL), timestamps
 - `tags` — id, board_id (FK), name, color. Unique index on (board_id, name).
 - `card_tags` — card_id + tag_id (composite PK, both FK with CASCADE)
 - `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp
-- `_meta` — key/value for schema versioning (current: "1")
+- `_meta` — key/value for schema versioning (current: "2")
 - `__drizzle_migrations` — Drizzle ORM journal (seeded by Go plugin so web UI recognizes schema)
 
 ### Pragmas (applied on every Open)
@@ -106,21 +108,22 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 
 ### Seed
 
-On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (pos 1000), To Do (2000), In Progress (3000), Review (4000), Done (5000).
+On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (pos 1000), To Do (2000), In Progress (3000), Review (4000), Done (5000). Also seeds 5 default phases: Development (#00FFFF), Code Review (#BF00FF), QA (#FCEE0A), Client Review (#FF00FF), Ready to Deploy (#39FF14).
 
-## MCP Tools (9)
+## MCP Tools (10)
 
 | Tool | Required Params | Optional Params |
 |------|----------------|-----------------|
 | `list_boards` | — | — |
 | `get_board` | — | board_id |
 | `get_board_summary` | — | board_id |
-| `create_card` | title | column_id, column_name, board_id, description, priority, tags |
-| `update_card` | card_id | title, description, priority |
+| `create_card` | title | column_id, column_name, board_id, description, priority, tags, phase_id, phase_name |
+| `update_card` | card_id | title, description, priority, phase_id, phase_name, unset_phase |
 | `move_card` | card_id | column_id, column_name, board_id, position |
 | `delete_card` | card_id | — |
 | `create_column` | name | board_id, color, wip_limit |
 | `manage_tags` | action | board_id, tag_id, card_id, name, color |
+| `manage_phases` | action | board_id, phase_id, name, color, ordered_ids |
 
 Column resolution: by `column_id` first, then `column_name` (case-insensitive), then defaults to first column on the board.
 
@@ -130,7 +133,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 20 tests total: 6 in `internal/db`, 14 in `internal/services`
+- 41 tests total: 6 in `internal/db`, 35 in `internal/services`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
