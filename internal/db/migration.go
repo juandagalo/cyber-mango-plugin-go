@@ -6,7 +6,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const currentSchemaVersion = "1"
+const currentSchemaVersion = "2"
 
 // RunMigrations ensures the schema is up to date.
 func RunMigrations(db *sqlx.DB) error {
@@ -27,7 +27,12 @@ func RunMigrations(db *sqlx.DB) error {
 		}
 	}
 
-	// Future migrations: check version and ALTER TABLE as needed
+	// Migrate v1 -> v2: add phases table + cards.phase_id
+	if version == "1" {
+		if err := migrateV1ToV2(db); err != nil {
+			return err
+		}
+	}
 
 	// Ensure Drizzle migration journal exists so the web UI won't re-run CREATE TABLE.
 	// The web UI uses Drizzle ORM which tracks applied migrations in __drizzle_migrations.
@@ -52,13 +57,56 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 		return err
 	}
 
-	// Check if the initial migration is already recorded
+	// Mark initial migration as applied
 	var count int
 	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
 	if count == 0 {
-		_, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`)
+		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`); err != nil {
+			return err
+		}
+	}
+
+	// Mark phases migration as applied (web UI's 0001_right_polaris)
+	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0001_right_polaris'`).Scan(&count)
+	if count == 0 {
+		_, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0001_right_polaris', 1776299103511)`)
 	}
 	return err
+}
+
+func migrateV1ToV2(db *sqlx.DB) error {
+	// Create phases table (IF NOT EXISTS — safe if web UI already ran migration)
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS phases (
+  id TEXT PRIMARY KEY NOT NULL,
+  board_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#00FFFF' NOT NULL,
+  position REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_phases_board_position ON phases(board_id, position);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name);
+`)
+	if err != nil {
+		return fmt.Errorf("migrate v1->v2 create phases: %w", err)
+	}
+
+	// Guard: SQLite has no ADD COLUMN IF NOT EXISTS — check pragma_table_info
+	var exists int
+	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'phase_id'`).Scan(&exists)
+	if exists == 0 {
+		if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`); err != nil {
+			return fmt.Errorf("migrate v1->v2 alter cards: %w", err)
+		}
+	}
+
+	if _, err := db.Exec(`UPDATE _meta SET value = '2' WHERE key = 'schema_version'`); err != nil {
+		return fmt.Errorf("update schema version: %w", err)
+	}
+	return nil
 }
 
 func createSchema(db *sqlx.DB) error {
@@ -83,6 +131,19 @@ CREATE TABLE IF NOT EXISTS columns (
 );
 CREATE INDEX IF NOT EXISTS idx_columns_board_position ON columns(board_id, position);
 
+CREATE TABLE IF NOT EXISTS phases (
+  id TEXT PRIMARY KEY NOT NULL,
+  board_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#00FFFF' NOT NULL,
+  position REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_phases_board_position ON phases(board_id, position);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name);
+
 CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
   column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
@@ -92,6 +153,7 @@ CREATE TABLE IF NOT EXISTS cards (
   position REAL NOT NULL,
   parent_card_id TEXT,
   due_date TEXT,
+  phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

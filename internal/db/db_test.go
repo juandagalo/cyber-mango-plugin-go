@@ -47,7 +47,7 @@ func TestRunMigrations_CreatesAllTables(t *testing.T) {
 		t.Fatalf("RunMigrations: %v", err)
 	}
 
-	tables := []string{"boards", "columns", "cards", "tags", "card_tags", "activity_log", "_meta"}
+	tables := []string{"boards", "columns", "cards", "tags", "card_tags", "activity_log", "phases", "_meta"}
 	for _, tbl := range tables {
 		var name string
 		err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&name)
@@ -98,6 +98,12 @@ func TestSeedDefaultBoard(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM columns`).Scan(&colCount)
 	if colCount != 5 {
 		t.Errorf("want 5 columns, got %d", colCount)
+	}
+
+	var phaseCount int
+	db.QueryRow(`SELECT COUNT(*) FROM phases`).Scan(&phaseCount)
+	if phaseCount != 5 {
+		t.Errorf("want 5 phases, got %d", phaseCount)
 	}
 }
 

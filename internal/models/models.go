@@ -9,6 +9,7 @@ type Board struct {
 	UpdatedAt   string  `db:"updated_at"  json:"updated_at"`
 	// Populated by GetBoard
 	Columns []Column `db:"-" json:"columns,omitempty"`
+	Phases  []Phase  `db:"-" json:"phases,omitempty"`
 }
 
 // Column represents a column on a board.
@@ -35,10 +36,23 @@ type Card struct {
 	Position     float64 `db:"position"       json:"position"`
 	ParentCardID *string `db:"parent_card_id" json:"parent_card_id"`
 	DueDate      *string `db:"due_date"       json:"due_date"`
+	PhaseID      *string `db:"phase_id"       json:"phase_id"`
 	CreatedAt    string  `db:"created_at"     json:"created_at"`
 	UpdatedAt    string  `db:"updated_at"     json:"updated_at"`
 	// Populated by GetBoard
-	Tags []Tag `db:"-" json:"tags,omitempty"`
+	Tags  []Tag  `db:"-" json:"tags,omitempty"`
+	Phase *Phase `db:"-" json:"phase,omitempty"`
+}
+
+// Phase represents a workflow phase on a board.
+type Phase struct {
+	ID        string  `db:"id"         json:"id"`
+	BoardID   string  `db:"board_id"   json:"board_id"`
+	Name      string  `db:"name"       json:"name"`
+	Color     string  `db:"color"      json:"color"`
+	Position  float64 `db:"position"   json:"position"`
+	CreatedAt string  `db:"created_at" json:"created_at"`
+	UpdatedAt string  `db:"updated_at" json:"updated_at"`
 }
 
 // Tag represents a label that can be attached to cards.
@@ -68,6 +82,7 @@ type BoardSummary struct {
 	TotalCards int             `json:"total_cards"`
 	Columns    []ColumnSummary `json:"columns"`
 	ByPriority map[string]int  `json:"by_priority"`
+	ByPhase    map[string]int  `json:"by_phase"`
 }
 
 // ColumnSummary holds per-column card counts.

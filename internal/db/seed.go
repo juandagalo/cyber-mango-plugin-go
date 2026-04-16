@@ -58,5 +58,31 @@ func SeedDefaultBoard(db *sqlx.DB) error {
 		}
 	}
 
+	phases := []struct {
+		name     string
+		color    string
+		position float64
+	}{
+		{"Development", "#00FFFF", 1.0},
+		{"Code Review", "#BF00FF", 2.0},
+		{"QA", "#FCEE0A", 3.0},
+		{"Client Review", "#FF00FF", 4.0},
+		{"Ready to Deploy", "#39FF14", 5.0},
+	}
+
+	for _, ph := range phases {
+		phID, err := gonanoid.New(12)
+		if err != nil {
+			return fmt.Errorf("generate phase id: %w", err)
+		}
+		_, err = db.Exec(
+			`INSERT INTO phases (id, board_id, name, color, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			phID, boardID, ph.name, ph.color, ph.position, now, now,
+		)
+		if err != nil {
+			return fmt.Errorf("insert phase %s: %w", ph.name, err)
+		}
+	}
+
 	return nil
 }
