@@ -12,7 +12,7 @@ import (
 
 // CreateCard creates a new card. Resolves column by ID or name.
 // If tags is non-empty, it is a comma-separated list of tag names to auto-create and assign.
-func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority, tags string) (*models.Card, error) {
+func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority, tags, phaseID, phaseName string) (*models.Card, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
@@ -34,6 +34,18 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 		return nil, fmt.Errorf("VALIDATION: invalid priority %q", priority)
 	}
 
+	// Resolve phase if requested
+	var resolvedPhaseID *string
+	if phaseID != "" || phaseName != "" {
+		phase, err := ResolvePhase(db, board.ID, phaseID, phaseName)
+		if err != nil {
+			return nil, err
+		}
+		if phase != nil {
+			resolvedPhaseID = &phase.ID
+		}
+	}
+
 	// Position: max + 1
 	var maxPos float64
 	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM cards WHERE column_id = ?`, col.ID).Scan(&maxPos)
@@ -43,8 +55,8 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.Exec(
-		`INSERT INTO cards (id, column_id, title, description, priority, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, col.ID, title, description, priority, position, now, now,
+		`INSERT INTO cards (id, column_id, title, description, priority, position, phase_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, col.ID, title, description, priority, position, resolvedPhaseID, now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert card: %w", err)
@@ -52,7 +64,8 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 
 	card := &models.Card{
 		ID: id, ColumnID: col.ID, Title: title, Description: description,
-		Priority: priority, Position: position, CreatedAt: now, UpdatedAt: now,
+		Priority: priority, Position: position, PhaseID: resolvedPhaseID,
+		CreatedAt: now, UpdatedAt: now,
 		Tags: []models.Tag{},
 	}
 
@@ -77,11 +90,15 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 }
 
 // UpdateCard updates card fields. Only updates provided (non-zero) fields.
-func UpdateCard(db *sqlx.DB, cardID, title, description, priority string) (*models.Card, error) {
+func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phaseName string, unsetPhase bool) (*models.Card, error) {
 	var card models.Card
-	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
+	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: card not found")
 	}
+
+	// Get board_id early — needed for phase resolution and activity log
+	var boardID string
+	db.QueryRow(`SELECT c.board_id FROM columns c JOIN cards ca ON ca.column_id = c.id WHERE ca.id = ?`, cardID).Scan(&boardID)
 
 	validPriorities := map[string]bool{"low": true, "medium": true, "high": true, "critical": true, "": true}
 	if !validPriorities[priority] {
@@ -97,19 +114,30 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority string) (*mode
 	if priority != "" {
 		card.Priority = priority
 	}
+
+	// Handle phase: unset, set/change, or no change
+	if unsetPhase {
+		card.PhaseID = nil
+	} else if phaseID != "" || phaseName != "" {
+		phase, err := ResolvePhase(db, boardID, phaseID, phaseName)
+		if err != nil {
+			return nil, err
+		}
+		if phase != nil {
+			card.PhaseID = &phase.ID
+		}
+	}
+
 	card.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.Exec(
-		`UPDATE cards SET title = ?, description = ?, priority = ?, updated_at = ? WHERE id = ?`,
-		card.Title, card.Description, card.Priority, card.UpdatedAt, card.ID,
+		`UPDATE cards SET title = ?, description = ?, priority = ?, phase_id = ?, updated_at = ? WHERE id = ?`,
+		card.Title, card.Description, card.Priority, card.PhaseID, card.UpdatedAt, card.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Get board_id for activity log
-	var boardID string
-	db.QueryRow(`SELECT c.board_id FROM columns c JOIN cards ca ON ca.column_id = c.id WHERE ca.id = ?`, cardID).Scan(&boardID)
 	LogActivity(db, boardID, &cardID, "card_updated", fmt.Sprintf("Updated card: %s", card.Title), "")
 
 	card.Tags = []models.Tag{}
@@ -119,7 +147,7 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority string) (*mode
 // MoveCard moves a card to a different column or position.
 func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, position *float64) (*models.Card, error) {
 	var card models.Card
-	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
+	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: card not found")
 	}
 

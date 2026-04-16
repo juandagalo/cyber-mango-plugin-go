@@ -74,6 +74,21 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 		return nil, err
 	}
 
+	// Fetch phases for this board
+	var phases []models.Phase
+	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
+		return nil, fmt.Errorf("query phases: %w", err)
+	}
+	if phases == nil {
+		phases = []models.Phase{}
+	}
+	// Build phaseMap for O(1) lookup
+	phaseMap := make(map[string]*models.Phase, len(phases))
+	for i := range phases {
+		phaseMap[phases[i].ID] = &phases[i]
+	}
+	board.Phases = phases
+
 	var columns []models.Column
 	if err := db.Select(&columns, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, fmt.Errorf("query columns: %w", err)
@@ -81,7 +96,7 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 
 	for i := range columns {
 		var cards []models.Card
-		if err := db.Select(&cards, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, created_at, updated_at FROM cards WHERE column_id = ? ORDER BY position`, columns[i].ID); err != nil {
+		if err := db.Select(&cards, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE column_id = ? ORDER BY position`, columns[i].ID); err != nil {
 			return nil, fmt.Errorf("query cards: %w", err)
 		}
 
@@ -94,6 +109,13 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 				tags = []models.Tag{}
 			}
 			cards[j].Tags = tags
+
+			// Populate phase from map
+			if cards[j].PhaseID != nil {
+				if p, ok := phaseMap[*cards[j].PhaseID]; ok {
+					cards[j].Phase = p
+				}
+			}
 		}
 		if cards == nil {
 			cards = []models.Card{}
@@ -119,10 +141,19 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 		return nil, err
 	}
 
+	// Fetch phases for name lookup
+	var phases []models.Phase
+	db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID)
+	phaseNameMap := make(map[string]string, len(phases))
+	for _, p := range phases {
+		phaseNameMap[p.ID] = p.Name
+	}
+
 	summary := &models.BoardSummary{
 		BoardID:    board.ID,
 		BoardName:  board.Name,
 		ByPriority: map[string]int{"low": 0, "medium": 0, "high": 0, "critical": 0},
+		ByPhase:    map[string]int{},
 	}
 
 	for _, col := range columns {
@@ -147,6 +178,22 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 				summary.ByPriority[priority] += cnt
 			}
 			rows.Close()
+		}
+
+		// Count by phase
+		phaseRows, _ := db.Queryx(`SELECT phase_id, COUNT(*) as cnt FROM cards WHERE column_id = ? GROUP BY phase_id`, col.ID)
+		if phaseRows != nil {
+			for phaseRows.Next() {
+				var phaseID *string
+				var cnt int
+				phaseRows.Scan(&phaseID, &cnt)
+				if phaseID == nil {
+					summary.ByPhase["unassigned"] += cnt
+				} else if name, ok := phaseNameMap[*phaseID]; ok {
+					summary.ByPhase[name] += cnt
+				}
+			}
+			phaseRows.Close()
 		}
 	}
 	if summary.Columns == nil {
