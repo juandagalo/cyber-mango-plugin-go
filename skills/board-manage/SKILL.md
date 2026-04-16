@@ -94,6 +94,57 @@ Before adding a card to a column that has a WIP limit, call `get_board` and coun
 
 Never silently exceed a WIP limit.
 
+## Phase Assignment Protocol
+
+Every board has workflow phases that track where a card is in the delivery pipeline. The default phases are: Development, Code Review, QA, Client Review, Ready to Deploy.
+
+### When to Assign Phases
+
+Assign a phase when creating or updating a card if the work state is clear:
+
+- The user says "I'm coding this" or "working on implementation" -> **Development**
+- The user opens a PR or asks for a review -> **Code Review**
+- The user says "ready for testing" or "needs QA" -> **QA**
+- The user says "waiting on the client" or "sent for approval" -> **Client Review**
+- The user says "approved", "ready to ship", or "merge it" -> **Ready to Deploy**
+
+If the work state is ambiguous, do not assign a phase. A card without a phase is valid — it simply means the delivery stage is unknown.
+
+### Phase vs Column
+
+Phases and columns serve DIFFERENT purposes:
+
+- **Columns** track the workflow state of the TASK (Backlog, To Do, In Progress, Review, Done)
+- **Phases** track the delivery stage of the WORK (Development, Code Review, QA, etc.)
+
+A card can be In Progress (column) during Development (phase), then still In Progress during Code Review (phase). Phases change more frequently than columns. When the user mentions a delivery stage change, update the phase via `update_card` with `phase_name`. When the task state changes, move the card via `move_card`.
+
+### Managing Phases
+
+Use `manage_phases` to list, create, update, delete, or reorder phases on a board:
+
+- `action: "list"` — see all phases on a board (ordered by position)
+- `action: "create"` — add a new phase (requires `name`, optional `color` defaults to #00FFFF)
+- `action: "update"` — change name or color (requires `phase_id`)
+- `action: "delete"` — remove a phase (cards keep their data, phase_id becomes null)
+- `action: "reorder"` — reorder phases by providing `ordered_ids` as a JSON array
+
+### Phase Transitions
+
+When you detect a phase change from the conversation, update the card immediately:
+
+```
+update_card(card_id: "...", phase_name: "Code Review")
+```
+
+To remove a phase from a card (e.g., the card is no longer in the delivery pipeline):
+
+```
+update_card(card_id: "...", unset_phase: true)
+```
+
+Do not skip phase transitions without reason. If a card jumps from Development to Ready to Deploy, confirm with the user.
+
 ## Card Descriptions
 
 Every card description must contain enough context for a human to understand the task without reading the surrounding chat history. Include:

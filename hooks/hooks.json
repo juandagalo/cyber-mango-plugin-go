@@ -21,6 +21,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mem_save",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo {\"systemMessage\":\"BOARD CHECK: You just saved something to engram. Does any card on the Cyber Mango board need to be created, updated, or moved to reflect this change? If yes, do it now. If not, carry on.\"}",
+            "timeout": 3000
+          }
+        ]
+      }
     ]
   }
 }

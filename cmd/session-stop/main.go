@@ -48,6 +48,10 @@ func main() {
 		{"card_moved", "Cards moved"},
 		{"card_deleted", "Cards deleted"},
 		{"column_created", "Columns created"},
+		{"phase_created", "Phases created"},
+		{"phase_updated", "Phases updated"},
+		{"phase_deleted", "Phases deleted"},
+		{"phases_reordered", "Phases reordered"},
 	}
 	for _, al := range actionLabels {
 		if n := counts[al.key]; n > 0 {

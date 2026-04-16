@@ -47,6 +47,13 @@ func main() {
 		sb.WriteString(fmt.Sprintf("  %s: %d cards%s\n", col.ColumnName, col.CardCount, wipStr))
 	}
 
+	if len(summary.ByPhase) > 0 {
+		sb.WriteString("\nBy Phase\n")
+		for phase, count := range summary.ByPhase {
+			sb.WriteString(fmt.Sprintf("  %s: %d\n", phase, count))
+		}
+	}
+
 	if summary.ByPriority["critical"] > 0 || summary.ByPriority["high"] > 0 {
 		sb.WriteString("\nPriority Alerts\n")
 		if summary.ByPriority["critical"] > 0 {
