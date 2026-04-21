@@ -88,7 +88,7 @@ func TestCreateCard_InvalidPriority(t *testing.T) {
 func TestUpdateCard(t *testing.T) {
 	testDB := newTestDB(t)
 	card, _ := CreateCard(testDB, "", "", "", "Original", "", "medium", "", "", "")
-	updated, err := UpdateCard(testDB, card.ID, "Updated Title", "", "high", "", "", false)
+	updated, err := UpdateCard(testDB, card.ID, "Updated Title", "", "high", "", "", false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +481,7 @@ func TestUpdateCard_SetPhase(t *testing.T) {
 		t.Fatal("card should start without phase")
 	}
 
-	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "Development", false)
+	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "Development", false, "", "", "")
 	if err != nil {
 		t.Fatalf("set phase: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestUpdateCard_ChangePhase(t *testing.T) {
 	testDB := newTestDB(t)
 	card, _ := CreateCard(testDB, "", "", "", "Phase Card", "", "", "", "", "Development")
 
-	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "QA", false)
+	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "QA", false, "", "", "")
 	if err != nil {
 		t.Fatalf("change phase: %v", err)
 	}
@@ -513,12 +513,64 @@ func TestUpdateCard_UnsetPhase(t *testing.T) {
 		t.Fatal("card should start with phase")
 	}
 
-	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "", true)
+	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "", true, "", "", "")
 	if err != nil {
 		t.Fatalf("unset phase: %v", err)
 	}
 	if updated.PhaseID != nil {
 		t.Error("card phase should be nil after unset")
+	}
+}
+
+func TestUpdateCard_WithColumnMove(t *testing.T) {
+	testDB := newTestDB(t)
+	card, _ := CreateCard(testDB, "", "", "Backlog", "Move via Update", "", "", "", "", "")
+
+	updated, err := UpdateCard(testDB, card.ID, "Updated and Moved", "", "high", "", "", false, "", "", "In Progress")
+	if err != nil {
+		t.Fatalf("UpdateCard with move: %v", err)
+	}
+	if updated.Title != "Updated and Moved" {
+		t.Errorf("want title 'Updated and Moved', got %q", updated.Title)
+	}
+	if updated.Priority != "high" {
+		t.Errorf("want priority 'high', got %q", updated.Priority)
+	}
+	if updated.ColumnID == card.ColumnID {
+		t.Error("card should have moved to a different column")
+	}
+}
+
+func TestUpdateCard_MoveOnly(t *testing.T) {
+	testDB := newTestDB(t)
+	card, _ := CreateCard(testDB, "", "", "Backlog", "Move Only", "", "", "", "", "")
+
+	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "", false, "", "", "In Progress")
+	if err != nil {
+		t.Fatalf("UpdateCard move only: %v", err)
+	}
+	if updated.Title != "Move Only" {
+		t.Errorf("title should be unchanged, got %q", updated.Title)
+	}
+	if updated.ColumnID == card.ColumnID {
+		t.Error("card should have moved to a different column")
+	}
+}
+
+func TestUpdateCard_SameColumnNoOp(t *testing.T) {
+	testDB := newTestDB(t)
+	card, _ := CreateCard(testDB, "", "", "Backlog", "Stay Put", "", "", "", "", "")
+	originalPos := card.Position
+
+	updated, err := UpdateCard(testDB, card.ID, "", "", "", "", "", false, "", "", "Backlog")
+	if err != nil {
+		t.Fatalf("UpdateCard same column: %v", err)
+	}
+	if updated.ColumnID != card.ColumnID {
+		t.Error("card should stay in same column")
+	}
+	if updated.Position != originalPos {
+		t.Errorf("position should be unchanged, want %f got %f", originalPos, updated.Position)
 	}
 }
 

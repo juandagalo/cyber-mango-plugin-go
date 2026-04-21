@@ -20,19 +20,19 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 
 	// 2. get_board
 	s.AddTool(mcp.NewTool("get_board",
-		mcp.WithDescription("Get a board with all its columns and cards"),
+		mcp.WithDescription("Get a board with all columns, cards (tickets/tasks), and phases"),
 		mcp.WithString("board_id", mcp.Description("Board ID (optional, defaults to first board)")),
 	), h.GetBoard)
 
 	// 3. get_board_summary
 	s.AddTool(mcp.NewTool("get_board_summary",
-		mcp.WithDescription("Get a summary of a board (card counts by column and priority)"),
+		mcp.WithDescription("Get a board summary with card/ticket counts by column, priority, and phase"),
 		mcp.WithString("board_id", mcp.Description("Board ID (optional)")),
 	), h.GetBoardSummary)
 
 	// 4. create_card
 	s.AddTool(mcp.NewTool("create_card",
-		mcp.WithDescription("Create a new card on the kanban board"),
+		mcp.WithDescription("Create a new card (ticket/task) on the kanban board"),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Card title")),
 		mcp.WithString("column_id", mcp.Description("Column ID")),
 		mcp.WithString("column_name", mcp.Description("Column name (case-insensitive)")),
@@ -46,7 +46,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 
 	// 5. update_card
 	s.AddTool(mcp.NewTool("update_card",
-		mcp.WithDescription("Update a card title, description, priority, or phase"),
+		mcp.WithDescription("Update a card (ticket/task) and optionally move it to a different column. Changes metadata (title, description, priority, phase) and/or column in a single call. To only reposition within a column, use move_card instead."),
 		mcp.WithString("card_id", mcp.Required(), mcp.Description("Card ID")),
 		mcp.WithString("title", mcp.Description("New title")),
 		mcp.WithString("description", mcp.Description("New description")),
@@ -54,11 +54,14 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("phase_id", mcp.Description("Phase ID")),
 		mcp.WithString("phase_name", mcp.Description("Phase name (case-insensitive)")),
 		mcp.WithBoolean("unset_phase", mcp.Description("Set to true to remove phase from card")),
+		mcp.WithString("column_id", mcp.Description("Target column ID to move the card/ticket to")),
+		mcp.WithString("column_name", mcp.Description("Target column name to move the card/ticket to (case-insensitive)")),
+		mcp.WithString("board_id", mcp.Description("Board ID (needed for column resolution when moving)")),
 	), h.UpdateCard)
 
 	// 6. move_card
 	s.AddTool(mcp.NewTool("move_card",
-		mcp.WithDescription("Move a card to a different column or position"),
+		mcp.WithDescription("Move a card (ticket/task) to a different column or reposition within a column. Prefer update_card if you also need to change title, description, priority, or phase."),
 		mcp.WithString("card_id", mcp.Required(), mcp.Description("Card ID")),
 		mcp.WithString("column_id", mcp.Description("Target column ID")),
 		mcp.WithString("column_name", mcp.Description("Target column name")),
@@ -68,7 +71,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 
 	// 7. delete_card
 	s.AddTool(mcp.NewTool("delete_card",
-		mcp.WithDescription("Delete a card from the board"),
+		mcp.WithDescription("Delete a card (ticket/task) from the board"),
 		mcp.WithString("card_id", mcp.Required(), mcp.Description("Card ID")),
 	), h.DeleteCard)
 
@@ -94,7 +97,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 
 	// 10. manage_tags
 	s.AddTool(mcp.NewTool("manage_tags",
-		mcp.WithDescription("Create, assign, remove, list, or delete tags"),
+		mcp.WithDescription("Manage tags for cards/tickets (create, assign, remove, list, delete)"),
 		mcp.WithString("action", mcp.Required(), mcp.Description("Action: create, assign, remove, list, delete")),
 		mcp.WithString("board_id", mcp.Description("Board ID")),
 		mcp.WithString("tag_id", mcp.Description("Tag ID")),

@@ -118,7 +118,7 @@ On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (
 | `get_board` | — | board_id |
 | `get_board_summary` | — | board_id |
 | `create_card` | title | column_id, column_name, board_id, description, priority, tags, phase_id, phase_name |
-| `update_card` | card_id | title, description, priority, phase_id, phase_name, unset_phase |
+| `update_card` | card_id | title, description, priority, phase_id, phase_name, unset_phase, column_id, column_name, board_id |
 | `move_card` | card_id | column_id, column_name, board_id, position |
 | `delete_card` | card_id | — |
 | `create_column` | name | board_id, color, wip_limit |

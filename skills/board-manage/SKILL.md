@@ -50,6 +50,10 @@ The default board has five columns. Use them as follows:
 
 Never skip columns without a stated reason. If a card jumps from Backlog to Done, that is a data quality problem unless the user explicitly confirms it is correct.
 
+## Terminology Mapping
+
+Users may refer to cards as "tickets", "tasks", "items", or "work items". These all map to **cards** on the board. When the user says "move the ticket to Done" or "update the task", they mean a card operation.
+
 ## Movement Protocol
 
 Move cards when the work state changes:
@@ -59,7 +63,7 @@ Move cards when the work state changes:
 - When the work is accepted and verified: move to **Done**
 - When work is blocked or paused: move back to **To Do** and add the `blocked` tag
 
-Always call `move_card` immediately when you detect a state transition. Do not batch movements. Do not assume the card is already in the right column — verify first.
+When you detect a state transition, ALWAYS include `column_name` in your `update_card` call alongside any other changes. This ensures the card moves to the correct column in the same operation. Use `move_card` only when repositioning within a column or moving without other changes. Do not assume the card is already in the right column — verify first.
 
 ## Priority Convention
 
@@ -117,7 +121,9 @@ Phases and columns serve DIFFERENT purposes:
 - **Columns** track the workflow state of the TASK (Backlog, To Do, In Progress, Review, Done)
 - **Phases** track the delivery stage of the WORK (Development, Code Review, QA, etc.)
 
-A card can be In Progress (column) during Development (phase), then still In Progress during Code Review (phase). Phases change more frequently than columns. When the user mentions a delivery stage change, update the phase via `update_card` with `phase_name`. When the task state changes, move the card via `move_card`.
+A card can be In Progress (column) during Development (phase), then still In Progress during Code Review (phase). Phases change more frequently than columns.
+
+`update_card` can change both metadata (title, description, priority, phase) AND move to a different column in a single call. When the user mentions a delivery stage change AND a state transition together, use `update_card` with both `phase_name` and `column_name`. Use `move_card` only when you need to reposition within a column or move without any other changes.
 
 ### Managing Phases
 
@@ -131,7 +137,13 @@ Use `manage_phases` to list, create, update, delete, or reorder phases on a boar
 
 ### Phase Transitions
 
-When you detect a phase change from the conversation, update the card immediately:
+When you detect a phase change from the conversation, update the card immediately. If the column should also change, include both in the same call:
+
+```
+update_card(card_id: "...", phase_name: "Code Review", column_name: "Review")
+```
+
+If only the phase changes (column stays the same):
 
 ```
 update_card(card_id: "...", phase_name: "Code Review")

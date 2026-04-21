@@ -108,6 +108,9 @@ func (h *Handlers) UpdateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 		req.GetString("phase_id", ""),
 		req.GetString("phase_name", ""),
 		unsetPhase,
+		req.GetString("board_id", ""),
+		req.GetString("column_id", ""),
+		req.GetString("column_name", ""),
 	)
 	if err != nil {
 		return errResult(err.Error()), nil
