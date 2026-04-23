@@ -90,13 +90,13 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 ### Schema (7 tables + meta)
 
 - `boards` — id, name, description, timestamps
-- `columns` — id, board_id (FK), name, color, wip_limit, position (REAL), timestamps
+- `columns` — id, board_id (FK), name, color, description TEXT, wip_limit, position (REAL), timestamps
 - `phases` — id, board_id (FK), name, color, position (REAL), timestamps. Unique index on (board_id, name).
 - `cards` — id, column_id (FK), title, description, priority (CHECK: low/medium/high/critical), position (REAL), parent_card_id, due_date, phase_id (FK nullable, ON DELETE SET NULL), timestamps
 - `tags` — id, board_id (FK), name, color. Unique index on (board_id, name).
 - `card_tags` — card_id + tag_id (composite PK, both FK with CASCADE)
 - `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp
-- `_meta` — key/value for schema versioning (current: "2")
+- `_meta` — key/value for schema versioning (current: "3")
 - `__drizzle_migrations` — Drizzle ORM journal (seeded by Go plugin so web UI recognizes schema)
 
 ### Pragmas (applied on every Open)
@@ -121,7 +121,7 @@ On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (
 | `update_card` | card_id | title, description, priority, phase_id, phase_name, unset_phase, column_id, column_name, board_id |
 | `move_card` | card_id | column_id, column_name, board_id, position |
 | `delete_card` | card_id | — |
-| `create_column` | name | board_id, color, wip_limit |
+| `create_column` | name | board_id, color, wip_limit, description |
 | `manage_tags` | action | board_id, tag_id, card_id, name, color |
 | `manage_phases` | action | board_id, phase_id, name, color, ordered_ids |
 
@@ -157,6 +157,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - Handlers struct (`internal/mcp/handlers.go`) holds `*sqlx.DB`, dispatches to service functions
 - Error handling: hooks exit silently on error (exit 0), MCP server exits with error (exit 1)
 - JSON responses: all slice fields initialized to empty `[]` (never nil) to avoid `null` in JSON
+- Column descriptions are used by agents to understand workflow dynamically — agents call `get_board` and read each column's `description` field instead of relying on hardcoded column names
 
 ## Install as Plugin
 
