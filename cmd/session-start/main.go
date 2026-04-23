@@ -44,7 +44,11 @@ func main() {
 		if col.WipLimit != nil {
 			wipStr = fmt.Sprintf(" (WIP: %d/%d)", col.CardCount, *col.WipLimit)
 		}
-		sb.WriteString(fmt.Sprintf("  %s: %d cards%s\n", col.ColumnName, col.CardCount, wipStr))
+		if col.Description != nil {
+			sb.WriteString(fmt.Sprintf("  %s (%d cards)%s: %s\n", col.ColumnName, col.CardCount, wipStr, *col.Description))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s: %d cards%s\n", col.ColumnName, col.CardCount, wipStr))
+		}
 	}
 
 	if len(summary.ByPhase) > 0 {
