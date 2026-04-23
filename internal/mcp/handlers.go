@@ -190,6 +190,7 @@ func (h *Handlers) CreateColumn(ctx context.Context, req mcp.CallToolRequest) (*
 		req.GetString("board_id", ""),
 		name,
 		req.GetString("color", ""),
+		req.GetString("description", ""),
 		wipLimit,
 	)
 	if err != nil {

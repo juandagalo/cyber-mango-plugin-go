@@ -39,7 +39,7 @@ func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.C
 	var col models.Column
 
 	if columnID != "" {
-		if err := db.Get(&col, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, columnID); err != nil {
+		if err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, columnID); err != nil {
 			return nil, fmt.Errorf("NOT_FOUND: column not found")
 		}
 		return &col, nil
@@ -47,7 +47,7 @@ func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.C
 
 	if columnName != "" {
 		cols := []models.Column{}
-		if err := db.Select(&cols, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, boardID); err != nil {
+		if err := db.Select(&cols, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 			return nil, fmt.Errorf("NOT_FOUND: columns not found")
 		}
 		lower := strings.ToLower(columnName)
@@ -61,7 +61,7 @@ func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.C
 	}
 
 	// Default: first column on the board
-	if err := db.Get(&col, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID); err != nil {
+	if err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID); err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: no columns on board")
 	}
 	return &col, nil
@@ -90,7 +90,7 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	board.Phases = phases
 
 	var columns []models.Column
-	if err := db.Select(&columns, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
+	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, fmt.Errorf("query columns: %w", err)
 	}
 
@@ -137,7 +137,7 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 	}
 
 	var columns []models.Column
-	if err := db.Select(&columns, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
+	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, err
 	}
 
@@ -161,10 +161,11 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 		db.QueryRow(`SELECT COUNT(*) FROM cards WHERE column_id = ?`, col.ID).Scan(&count)
 		summary.TotalCards += count
 		colSummary := models.ColumnSummary{
-			ColumnID:   col.ID,
-			ColumnName: col.Name,
-			CardCount:  count,
-			WipLimit:   col.WipLimit,
+			ColumnID:    col.ID,
+			ColumnName:  col.Name,
+			Description: col.Description,
+			CardCount:   count,
+			WipLimit:    col.WipLimit,
 		}
 		summary.Columns = append(summary.Columns, colSummary)
 

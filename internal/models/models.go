@@ -14,14 +14,15 @@ type Board struct {
 
 // Column represents a column on a board.
 type Column struct {
-	ID        string   `db:"id"         json:"id"`
-	BoardID   string   `db:"board_id"   json:"board_id"`
-	Name      string   `db:"name"       json:"name"`
-	Color     string   `db:"color"      json:"color"`
-	WipLimit  *int     `db:"wip_limit"  json:"wip_limit"`
-	Position  float64  `db:"position"   json:"position"`
-	CreatedAt string   `db:"created_at" json:"created_at"`
-	UpdatedAt string   `db:"updated_at" json:"updated_at"`
+	ID          string   `db:"id"          json:"id"`
+	BoardID     string   `db:"board_id"    json:"board_id"`
+	Name        string   `db:"name"        json:"name"`
+	Color       string   `db:"color"       json:"color"`
+	Description *string  `db:"description" json:"description"`
+	WipLimit    *int     `db:"wip_limit"   json:"wip_limit"`
+	Position    float64  `db:"position"    json:"position"`
+	CreatedAt   string   `db:"created_at"  json:"created_at"`
+	UpdatedAt   string   `db:"updated_at"  json:"updated_at"`
 	// Populated by GetBoard
 	Cards []Card `db:"-" json:"cards,omitempty"`
 }
@@ -87,8 +88,9 @@ type BoardSummary struct {
 
 // ColumnSummary holds per-column card counts.
 type ColumnSummary struct {
-	ColumnID   string `json:"column_id"`
-	ColumnName string `json:"column_name"`
-	CardCount  int    `json:"card_count"`
-	WipLimit   *int   `json:"wip_limit"`
+	ColumnID    string  `json:"column_id"`
+	ColumnName  string  `json:"column_name"`
+	Description *string `json:"description"`
+	CardCount   int     `json:"card_count"`
+	WipLimit    *int    `json:"wip_limit"`
 }

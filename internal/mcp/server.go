@@ -81,6 +81,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("name", mcp.Required(), mcp.Description("Column name")),
 		mcp.WithString("board_id", mcp.Description("Board ID")),
 		mcp.WithString("color", mcp.Description("Hex color (e.g. #3b82f6)")),
+		mcp.WithString("description", mcp.Description("Column purpose — describes what this column means in the workflow. Agents use this to understand where to move cards.")),
 		mcp.WithNumber("wip_limit", mcp.Description("WIP limit (optional)")),
 	), h.CreateColumn)
 

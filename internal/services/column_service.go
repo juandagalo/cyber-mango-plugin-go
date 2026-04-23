@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -10,7 +11,7 @@ import (
 )
 
 // CreateColumn creates a new column on a board.
-func CreateColumn(db *sqlx.DB, boardID, name, color string, wipLimit *int) (*models.Column, error) {
+func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimit *int) (*models.Column, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
@@ -23,6 +24,12 @@ func CreateColumn(db *sqlx.DB, boardID, name, color string, wipLimit *int) (*mod
 		color = "#6b7280"
 	}
 
+	// Convert empty/whitespace-only description to nil (stored as NULL).
+	var descPtr *string
+	if trimmed := strings.TrimSpace(description); trimmed != "" {
+		descPtr = &trimmed
+	}
+
 	// Position: max + 1000
 	var maxPos float64
 	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM columns WHERE board_id = ?`, board.ID).Scan(&maxPos)
@@ -32,8 +39,8 @@ func CreateColumn(db *sqlx.DB, boardID, name, color string, wipLimit *int) (*mod
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.Exec(
-		`INSERT INTO columns (id, board_id, name, color, wip_limit, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, board.ID, name, color, wipLimit, position, now, now,
+		`INSERT INTO columns (id, board_id, name, color, description, wip_limit, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, board.ID, name, color, descPtr, wipLimit, position, now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert column: %w", err)
@@ -41,7 +48,8 @@ func CreateColumn(db *sqlx.DB, boardID, name, color string, wipLimit *int) (*mod
 
 	col := &models.Column{
 		ID: id, BoardID: board.ID, Name: name, Color: color,
-		WipLimit: wipLimit, Position: position, CreatedAt: now, UpdatedAt: now,
+		Description: descPtr, WipLimit: wipLimit, Position: position,
+		CreatedAt: now, UpdatedAt: now,
 		Cards: []models.Card{},
 	}
 

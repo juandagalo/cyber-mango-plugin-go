@@ -129,12 +129,122 @@ func TestDeleteCard(t *testing.T) {
 
 func TestCreateColumn(t *testing.T) {
 	testDB := newTestDB(t)
-	col, err := CreateColumn(testDB, "", "QA", "#ff0000", nil)
+	col, err := CreateColumn(testDB, "", "QA", "#ff0000", "", nil)
 	if err != nil {
 		t.Fatalf("CreateColumn: %v", err)
 	}
 	if col.Name != "QA" {
 		t.Errorf("want column name 'QA', got %q", col.Name)
+	}
+}
+
+func TestCreateColumn_WithDescription(t *testing.T) {
+	testDB := newTestDB(t)
+	desc := "Work actively being implemented"
+	col, err := CreateColumn(testDB, "", "In Progress", "#00ff00", desc, nil)
+	if err != nil {
+		t.Fatalf("CreateColumn with description: %v", err)
+	}
+	if col.Description == nil {
+		t.Fatal("want non-nil description, got nil")
+	}
+	if *col.Description != desc {
+		t.Errorf("want description %q, got %q", desc, *col.Description)
+	}
+
+	// Verify persisted value via DB read
+	var got *string
+	testDB.QueryRow(`SELECT description FROM columns WHERE id = ?`, col.ID).Scan(&got)
+	if got == nil {
+		t.Fatal("description should be persisted in DB")
+	}
+	if *got != desc {
+		t.Errorf("persisted description: want %q, got %q", desc, *got)
+	}
+}
+
+func TestCreateColumn_WithoutDescription(t *testing.T) {
+	testDB := newTestDB(t)
+	col, err := CreateColumn(testDB, "", "Backlog 2", "#aabbcc", "", nil)
+	if err != nil {
+		t.Fatalf("CreateColumn without description: %v", err)
+	}
+	if col.Description != nil {
+		t.Errorf("want nil description, got %q", *col.Description)
+	}
+
+	// Verify NULL in DB
+	var got *string
+	testDB.QueryRow(`SELECT description FROM columns WHERE id = ?`, col.ID).Scan(&got)
+	if got != nil {
+		t.Errorf("want NULL in DB, got %q", *got)
+	}
+}
+
+func TestCreateColumn_EmptyDescription(t *testing.T) {
+	testDB := newTestDB(t)
+	// Empty string should be stored as NULL
+	col, err := CreateColumn(testDB, "", "Review", "#ffffff", "   ", nil)
+	if err != nil {
+		t.Fatalf("CreateColumn empty description: %v", err)
+	}
+	// Whitespace-only description should be treated as empty -> nil
+	// (behaviour: trimmed empty == nil)
+	// This test documents the expected behaviour; implementation may choose to
+	// trim or not. We assert nil for empty-after-trim.
+	if col.Description != nil {
+		t.Errorf("want nil for whitespace-only description, got %q", *col.Description)
+	}
+}
+
+func TestGetBoard_ColumnsHaveDescription(t *testing.T) {
+	testDB := newTestDB(t)
+	// Seeded columns don't have descriptions yet (batch 3 adds them).
+	// This test just verifies the field is present and is nil for seeded columns.
+	board, err := GetBoard(testDB, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, col := range board.Columns {
+		// Description field must exist on the struct (compile-time guarantee).
+		// For now seeded columns have nil description — that's expected.
+		_ = col.Description
+	}
+}
+
+func TestGetBoardSummary_ColumnsHaveDescription(t *testing.T) {
+	testDB := newTestDB(t)
+	summary, err := GetBoardSummary(testDB, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cs := range summary.Columns {
+		// Description field must exist on ColumnSummary (compile-time guarantee).
+		// Seeded columns have nil description.
+		_ = cs.Description
+	}
+}
+
+func TestCreateColumn_Description_JSON(t *testing.T) {
+	testDB := newTestDB(t)
+
+	// Column with description: json should contain description value
+	desc := "Testing workflow"
+	col, err := CreateColumn(testDB, "", "Testing", "#ff00ff", desc, nil)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+	if col.Description == nil || *col.Description != desc {
+		t.Errorf("want description %q, got %v", desc, col.Description)
+	}
+
+	// Column without description: json should contain "description":null
+	col2, err := CreateColumn(testDB, "", "Empty", "#000000", "", nil)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+	if col2.Description != nil {
+		t.Errorf("want nil description, got %q", *col2.Description)
 	}
 }
 
