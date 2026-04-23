@@ -157,16 +157,52 @@ update_card(card_id: "...", unset_phase: true)
 
 Do not skip phase transitions without reason. If a card jumps from Development to Ready to Deploy, confirm with the user.
 
-## Card Descriptions
+## Card Template
 
-Every card description must contain enough context for a human to understand the task without reading the surrounding chat history. Include:
+Every card MUST follow this template. No exceptions.
 
-- What needs to be done (one clear sentence)
-- Why it matters or what problem it solves
-- Any relevant technical context (file paths, services, endpoints)
-- Acceptance criteria if known
+### Title Format
 
-Do not write vague descriptions like "fix the bug" or "implement the feature". A card description must stand alone.
+Use the pattern: `[type] short imperative description`
+
+Valid types:
+- `[feat]` — new functionality
+- `[bug]` — something is broken
+- `[chore]` — maintenance, tooling, refactors, dependency updates
+- `[spike]` — investigation or proof of concept
+- `[docs]` — documentation changes
+
+Examples:
+- `[feat] add OAuth2 login flow`
+- `[bug] fix null pointer on empty board`
+- `[chore] upgrade mcp-go to v0.45`
+- `[spike] evaluate Redis vs Memcached for session cache`
+
+The title must be lowercase after the type prefix. Keep it under 60 characters. Use imperative mood ("add", "fix", "update", not "added", "fixing", "updates").
+
+### Description Format
+
+Every description MUST have exactly three sections in this order:
+
+```
+## What
+One sentence describing what needs to be done.
+
+## Why
+What problem this solves or what motivates the work.
+
+## Context
+Relevant files, services, endpoints, or technical details.
+```
+
+Rules:
+- **What**: One clear sentence. No filler, no preamble.
+- **Why**: Explain the motivation, not restate the what. "Users can't log in" is good. "Because the login is broken" is restating the title.
+- **Context**: File paths, service names, API endpoints, config keys, or any technical detail that helps locate the work. If there is no relevant context yet, write "TBD".
+
+Do not add extra sections. The current state of each card (status, progress, blockers) is tracked via columns, phases, and tags, not in the description.
+
+Do not write vague descriptions like "fix the bug" or "implement the feature". A card description must stand alone without the surrounding chat history.
 
 ## Update Protocol
 
