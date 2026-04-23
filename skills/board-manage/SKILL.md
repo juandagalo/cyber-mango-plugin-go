@@ -40,15 +40,27 @@ Before creating any card, call `get_board` and search the results for an existin
 
 ## Column Definitions and Workflow
 
-The default board has five columns. Use them as follows:
+Before making any column placement decision, call `get_board` and read each column's `description` field. Column descriptions define the intended purpose of each column for THIS board. Do not assume column names map to a fixed meaning — always read the description first.
 
-- **Backlog**: Ideas, future work, parked items, anything not yet committed to. Use this as the default column when the user mentions something without implying they are starting it now.
-- **To Do**: Committed work that is ready to start. The user has decided this will be done in the near term.
-- **In Progress**: Actively being worked on right now. Only one or a small number of cards should be here at once.
-- **Review**: Work that is complete from the implementer's side but waiting for feedback, code review, QA, or approval.
-- **Done**: Completed and verified. The acceptance criteria have been met.
+To understand a column's workflow role:
+1. Call `get_board`
+2. Read the `description` field on each column object in the response
+3. Match the current work state to the column whose description best fits
 
-Never skip columns without a stated reason. If a card jumps from Backlog to Done, that is a data quality problem unless the user explicitly confirms it is correct.
+If a column has no description, infer its purpose from:
+- Position: the first column (lowest position) is intake/backlog, the last column (highest position) is terminal/done
+- Name: fall back to common conventions based on the column name (Backlog, To Do, In Progress, Review, Done)
+
+The DEFAULT board ships with these five columns as examples:
+- Backlog (pos 1000): Ideas, future work, and parked items not yet committed to
+- To Do (pos 2000): Committed work ready to start in the near term
+- In Progress (pos 3000): Work actively being done right now
+- Review (pos 4000): Work complete from the implementer side, waiting for code review, QA, or client approval
+- Done (pos 5000): Completed, verified, and deployed
+
+These are the defaults — your board may have different columns with different names and descriptions. Always read descriptions dynamically from `get_board`.
+
+Never skip columns without a stated reason. If a card jumps from the first column to the last, that is a data quality problem unless the user explicitly confirms it is correct.
 
 ## Terminology Mapping
 
@@ -56,12 +68,18 @@ Users may refer to cards as "tickets", "tasks", "items", or "work items". These 
 
 ## Movement Protocol
 
-Move cards when the work state changes:
+Move cards when the work state changes. To determine the correct target column:
 
-- When you or the user start working on something: move to **In Progress**
-- When implementation is complete and feedback is needed: move to **Review**
-- When the work is accepted and verified: move to **Done**
-- When work is blocked or paused: move back to **To Do** and add the `blocked` tag
+1. Call `get_board` and read the `description` field on each column
+2. Match the work state change to the column whose description best fits the new state
+3. If no description clearly matches, fall back to column name pattern matching (e.g., a column named "In Progress" for active work, "Done" for completed work)
+4. Always move left-to-right by position (lower position number to higher position number) — never skip columns without explaining why
+
+For example, on the DEFAULT board:
+- When you or the user start working on something: move to the column describing active work (default: **In Progress**)
+- When implementation is complete and feedback is needed: move to the column describing waiting-for-review state (default: **Review**)
+- When the work is accepted and verified: move to the terminal column (default: **Done**)
+- When work is blocked or paused: move back to the column describing ready-to-start work (default: **To Do**) and add the `blocked` tag
 
 When you detect a state transition, ALWAYS include `column_name` in your `update_card` call alongside any other changes. This ensures the card moves to the correct column in the same operation. Use `move_card` only when repositioning within a column or moving without other changes. Do not assume the card is already in the right column — verify first.
 
