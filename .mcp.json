@@ -2,10 +2,7 @@
   "mcpServers": {
     "cyber-mango": {
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/mcp-server.exe",
-      "args": [],
-      "env": {
-        "CYBER_MANGO_DB_PATH": "${CYBER_MANGO_DB_PATH}"
-      }
+      "args": []
     }
   }
 }
