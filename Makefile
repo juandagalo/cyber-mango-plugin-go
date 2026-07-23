@@ -1,12 +1,10 @@
 .PHONY: build clean test
 
 BINDIR = bin
-GOOS ?= $(shell go env GOOS)
-GOARCH ?= $(shell go env GOARCH)
-EXT =
-ifeq ($(GOOS),windows)
-  EXT = .exe
-endif
+
+# Always use the .exe suffix so .mcp.json and hooks.json (which cannot branch
+# per OS) reference one binary name everywhere. Linux/macOS run it fine.
+EXT = .exe
 
 build:
 	go build -o $(BINDIR)/mcp-server$(EXT) ./cmd/mcp-server

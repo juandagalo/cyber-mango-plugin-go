@@ -48,15 +48,15 @@ cd cyber-mango-plugin-go
 make build
 ```
 
-This produces three binaries in `bin/`: `mcp-server`, `session-start`, `session-stop` (with `.exe` on Windows). The Makefile detects the OS automatically.
+This produces three binaries in `bin/`: `mcp-server.exe`, `session-start.exe`, `session-stop.exe`. The `.exe` suffix is used on every OS (Linux and macOS run it fine) because the plugin config files cannot branch per platform.
 
 If you don't have `make`, build manually:
 
 ```bash
 mkdir -p bin
-go build -o bin/mcp-server ./cmd/mcp-server
-go build -o bin/session-start ./cmd/session-start
-go build -o bin/session-stop ./cmd/session-stop
+go build -o bin/mcp-server.exe ./cmd/mcp-server
+go build -o bin/session-start.exe ./cmd/session-start
+go build -o bin/session-stop.exe ./cmd/session-stop
 ```
 
 ### Install as Plugin
