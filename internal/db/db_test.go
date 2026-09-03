@@ -428,3 +428,198 @@ func TestMigration_V2ToV3_FailureMidWayKeepsVersion(t *testing.T) {
 		t.Errorf("want schema_version 3 after retried migration, got %q", version)
 	}
 }
+
+// --- H7 Drizzle-first tests ---
+
+// newDrizzleFirstDB creates a database the way the web UI's first Drizzle
+// migration would: v1 tables, a SHA-256 journal row, and no _meta table.
+func newDrizzleFirstDB(t *testing.T, cardsPhaseID, columnsDescription, phasesTable bool) *sqlx.DB {
+	t.Helper()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	schema := `
+CREATE TABLE boards (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE columns (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#6b7280',
+  wip_limit INTEGER,
+  position REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE cards (
+  id TEXT PRIMARY KEY,
+  column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high','critical')),
+  position REAL NOT NULL,
+  parent_card_id TEXT,
+  due_date TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE tags (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#3b82f6',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE card_tags (
+  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (card_id, tag_id)
+);
+CREATE TABLE activity_log (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  card_id TEXT,
+  action TEXT NOT NULL,
+  details TEXT,
+  agent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE __drizzle_migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hash TEXT NOT NULL,
+  created_at BIGINT
+);
+INSERT INTO __drizzle_migrations (hash, created_at)
+  VALUES ('9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', 1776186662950);
+`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("create drizzle-first schema: %v", err)
+	}
+	if phasesTable {
+		if _, err := db.Exec(`CREATE TABLE phases (
+  id TEXT PRIMARY KEY NOT NULL,
+  board_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#00FFFF' NOT NULL,
+  position REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX idx_phases_board_name ON phases(board_id, name)`); err != nil {
+			t.Fatalf("create phases: %v", err)
+		}
+	}
+	if cardsPhaseID {
+		if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`); err != nil {
+			t.Fatalf("add cards.phase_id: %v", err)
+		}
+	}
+	if columnsDescription {
+		if _, err := db.Exec(`ALTER TABLE columns ADD COLUMN description TEXT`); err != nil {
+			t.Fatalf("add columns.description: %v", err)
+		}
+	}
+	return db
+}
+
+func columnExists(t *testing.T, db *sqlx.DB, table, column string) bool {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&count); err != nil {
+		t.Fatalf("pragma_table_info(%s): %v", table, err)
+	}
+	return count == 1
+}
+
+func journalRowCount(t *testing.T, db *sqlx.DB, hash string) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = ?`, hash).Scan(&count); err != nil {
+		t.Fatalf("query __drizzle_migrations: %v", err)
+	}
+	return count
+}
+
+func TestRunMigrations_DrizzleFirstV1Schema_AddsMissingColumns(t *testing.T) {
+	db := newDrizzleFirstDB(t, false, false, false)
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations on drizzle-first v1 db: %v", err)
+	}
+
+	if !columnExists(t, db, "cards", "phase_id") {
+		t.Error("want cards.phase_id after migration")
+	}
+	if !columnExists(t, db, "columns", "description") {
+		t.Error("want columns.description after migration")
+	}
+	var idx string
+	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'phases' AND name = 'idx_phases_board_name'`).Scan(&idx); err != nil {
+		t.Errorf("want phases table with idx_phases_board_name: %v", err)
+	}
+	var version string
+	if err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	if version != "3" {
+		t.Errorf("want schema_version 3, got %q", version)
+	}
+	for _, tag := range []string{"0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper"} {
+		if got := journalRowCount(t, db, tag); got != 1 {
+			t.Errorf("want 1 journal row for %s, got %d", tag, got)
+		}
+	}
+
+	if _, err := db.Exec(`INSERT INTO boards (id, name) VALUES ('b1', 'Board')`); err != nil {
+		t.Fatalf("insert board: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO columns (id, board_id, name, position, description) VALUES ('c1', 'b1', 'Backlog', 1000, 'Unstarted work')`); err != nil {
+		t.Fatalf("insert column with description: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO phases (id, board_id, name, position) VALUES ('p1', 'b1', 'Development', 1000)`); err != nil {
+		t.Fatalf("insert phase: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO cards (id, column_id, title, position, phase_id) VALUES ('k1', 'c1', 'Card', 1, 'p1')`); err != nil {
+		t.Fatalf("insert card with phase_id: %v", err)
+	}
+}
+
+func TestRunMigrations_DrizzleFirstCurrentSchema_StampsWithoutDuplicates(t *testing.T) {
+	db := newDrizzleFirstDB(t, true, true, true)
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("first RunMigrations: %v", err)
+	}
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("second RunMigrations: %v", err)
+	}
+
+	var version string
+	if err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	if version != "3" {
+		t.Errorf("want schema_version 3, got %q", version)
+	}
+	var total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations`).Scan(&total); err != nil {
+		t.Fatalf("count journal rows: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("want 5 journal rows (sha256 + 0000..0003), got %d", total)
+	}
+	for _, tag := range []string{"0000_wandering_sister_grimm", "0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper"} {
+		if got := journalRowCount(t, db, tag); got != 1 {
+			t.Errorf("want 1 journal row for %s, got %d", tag, got)
+		}
+	}
+}

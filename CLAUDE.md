@@ -134,7 +134,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 79 tests total: 14 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`
+- 81 tests total: 16 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -149,6 +149,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - **Shared DB with web UI** — The plugin and the [cyber-mango web UI](https://github.com/juandagalo/cyber-mango) share the same SQLite database. Changes from either side appear instantly.
 - **Position is REAL** — Cards use `maxPos + 1`, columns use `maxPos + 1000`. Fractional positioning is supported for reordering.
 - **Migration chaining** — `RunMigrations` must update its local `version` variable after each step, otherwise a v1 DB stops at v2 in a single run. Keep this pattern when adding v4+.
+- **Drizzle-first DBs** — When the web UI creates the file first there is no `_meta` row, so `createSchema` runs against existing tables where `CREATE TABLE IF NOT EXISTS` is a no-op. It therefore runs every idempotent guard (`ensurePhasesTable`, `ensureCardsPhaseID`, `ensureColumnsDescription`, `ensureJournalTag`) before stamping the current version. A new schema change needs one `ensureX` helper called from both its incremental step and `createSchema`.
 - **Drizzle journal formats coexist** — The web UI writes SHA-256 content hashes into `__drizzle_migrations`; the Go plugin writes tag names (`0001_right_polaris`, `0002_old_vengeance`, `0003_overjoyed_reaper`). Each side checks its own format, so both rows can live in the same table. When the web UI adds a migration, add the matching tag here.
 
 ## Conventions
@@ -183,7 +184,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H4 Transactions around create card + tags, reorder phases, seed, migration (`internal/sqltx`, `services.Querier`)
 - [x] H5 Tag writes log activity (`tag_created/assigned/removed/deleted`, each inside `sqltx.Run`); `LogActivity` errors propagate everywhere
 - [x] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause (`getCard`, `getPhase`, `getTag` helpers)
-- [ ] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs)
+- [x] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs); guards extracted into `ensureX` helpers
 - [ ] H8 `session-stop` watermark per session, not global: read `session_id` from the hook stdin JSON, store one watermark per session, and compare with `>=` plus dedupe by ID (or RFC3339Nano timestamps) so same-second activity is not dropped. Concurrent sessions on the shared DB must not steal each other's summaries
 - [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once
 - [ ] H10 `GetBoardSummary` single GROUP BY query

@@ -1,6 +1,8 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -19,9 +21,13 @@ func RunMigrations(db *sqlx.DB) error {
 	var version string
 	err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("read schema version: %w", err)
+		}
 		if err := sqltx.Run(db, createSchema); err != nil {
 			return err
 		}
+		version = currentSchemaVersion
 	}
 
 	if version == "1" {
@@ -48,107 +54,51 @@ func RunMigrations(db *sqlx.DB) error {
 // ensureDrizzleJournal marks the web UI's Drizzle migrations as applied so it
 // does not re-run CREATE TABLE against a schema this plugin already created.
 func ensureDrizzleJournal(tx *sqlx.Tx) error {
-	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		hash TEXT NOT NULL,
-		created_at BIGINT
-	)`)
-	if err != nil {
+	if err := ensureJournalTable(tx); err != nil {
 		return err
 	}
-
-	var count int
-	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
-	if count == 0 {
-		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`); err != nil {
-			return err
-		}
+	if err := ensureJournalTag(tx, "0000_wandering_sister_grimm", 1776186662950); err != nil {
+		return err
 	}
-
-	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0001_right_polaris'`).Scan(&count)
-	if count == 0 {
-		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0001_right_polaris', 1776299103511)`); err != nil {
-			return err
-		}
+	if err := ensureJournalTag(tx, "0001_right_polaris", 1776299103511); err != nil {
+		return err
 	}
-
-	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0002_old_vengeance'`).Scan(&count)
-	if count == 0 {
-		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0002_old_vengeance', 1776799182756)`); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return ensureJournalTag(tx, "0002_old_vengeance", 1776799182756)
 }
 
 func migrateV1ToV2(tx *sqlx.Tx) error {
-	_, err := tx.Exec(`
-CREATE TABLE IF NOT EXISTS phases (
-  id TEXT PRIMARY KEY NOT NULL,
-  board_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  color TEXT DEFAULT '#00FFFF' NOT NULL,
-  position REAL NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_phases_board_position ON phases(board_id, position);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name);
-`)
-	if err != nil {
-		return fmt.Errorf("migrate v1->v2 create phases: %w", err)
+	if err := ensurePhasesTable(tx); err != nil {
+		return fmt.Errorf("migrate v1->v2: %w", err)
 	}
-
-	// SQLite has no ADD COLUMN IF NOT EXISTS.
-	var exists int
-	tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'phase_id'`).Scan(&exists)
-	if exists == 0 {
-		if _, err := tx.Exec(`ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`); err != nil {
-			return fmt.Errorf("migrate v1->v2 alter cards: %w", err)
-		}
+	if err := ensureCardsPhaseID(tx); err != nil {
+		return fmt.Errorf("migrate v1->v2: %w", err)
 	}
-
 	if _, err := tx.Exec(`UPDATE _meta SET value = '2' WHERE key = 'schema_version'`); err != nil {
-		return fmt.Errorf("update schema version: %w", err)
+		return fmt.Errorf("migrate v1->v2 update schema version: %w", err)
 	}
 	return nil
 }
 
 func migrateV2ToV3(tx *sqlx.Tx) error {
-	// SQLite has no ADD COLUMN IF NOT EXISTS.
-	var exists int
-	tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name = 'description'`).Scan(&exists)
-	if exists == 0 {
-		if _, err := tx.Exec(`ALTER TABLE columns ADD COLUMN description TEXT`); err != nil {
-			return fmt.Errorf("migrate v2->v3 alter columns: %w", err)
-		}
+	if err := ensureColumnsDescription(tx); err != nil {
+		return fmt.Errorf("migrate v2->v3: %w", err)
 	}
-
 	if _, err := tx.Exec(`UPDATE _meta SET value = '3' WHERE key = 'schema_version'`); err != nil {
 		return fmt.Errorf("migrate v2->v3 update schema version: %w", err)
 	}
-
-	// May run before ensureDrizzleJournal.
-	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		hash TEXT NOT NULL,
-		created_at BIGINT
-	)`); err != nil {
-		return fmt.Errorf("migrate v2->v3 create drizzle table: %w", err)
+	if err := ensureJournalTable(tx); err != nil {
+		return fmt.Errorf("migrate v2->v3: %w", err)
 	}
-
-	var count int
-	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0003_overjoyed_reaper'`).Scan(&count)
-	if count == 0 {
-		if _, err := tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0003_overjoyed_reaper', 1776977991688)`); err != nil {
-			return fmt.Errorf("migrate v2->v3 drizzle journal: %w", err)
-		}
+	if err := ensureJournalTag(tx, "0003_overjoyed_reaper", 1776977991688); err != nil {
+		return fmt.Errorf("migrate v2->v3: %w", err)
 	}
 	return nil
 }
 
+// createSchema handles both a brand-new file and a Drizzle-first file the web
+// UI created at an older shape: CREATE TABLE IF NOT EXISTS is a no-op on the
+// latter, so every incremental guard must run before the current version is
+// stamped or the missing columns would never be added.
 func createSchema(tx *sqlx.Tx) error {
 	schema := `
 CREATE TABLE IF NOT EXISTS boards (
@@ -171,19 +121,6 @@ CREATE TABLE IF NOT EXISTS columns (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_columns_board_position ON columns(board_id, position);
-
-CREATE TABLE IF NOT EXISTS phases (
-  id TEXT PRIMARY KEY NOT NULL,
-  board_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  color TEXT DEFAULT '#00FFFF' NOT NULL,
-  position REAL NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_phases_board_position ON phases(board_id, position);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name);
 
 CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
@@ -228,11 +165,97 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `
+	if err := ensurePhasesTable(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
 	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := ensureCardsPhaseID(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := ensureColumnsDescription(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := ensureJournalTable(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := ensureJournalTag(tx, "0003_overjoyed_reaper", 1776977991688); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {
 		return fmt.Errorf("stamp schema version: %w", err)
+	}
+	return nil
+}
+
+func ensurePhasesTable(tx *sqlx.Tx) error {
+	_, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS phases (
+  id TEXT PRIMARY KEY NOT NULL,
+  board_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#00FFFF' NOT NULL,
+  position REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (board_id) REFERENCES boards(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_phases_board_position ON phases(board_id, position);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name);
+`)
+	if err != nil {
+		return fmt.Errorf("create phases: %w", err)
+	}
+	return nil
+}
+
+func ensureCardsPhaseID(tx *sqlx.Tx) error {
+	return ensureColumn(tx, "cards", "phase_id", `ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`)
+}
+
+func ensureColumnsDescription(tx *sqlx.Tx) error {
+	return ensureColumn(tx, "columns", "description", `ALTER TABLE columns ADD COLUMN description TEXT`)
+}
+
+// SQLite has no ADD COLUMN IF NOT EXISTS, so the guard reads pragma_table_info
+// first. A failed read is an error, never a silent skip.
+func ensureColumn(tx *sqlx.Tx, table, column, alter string) error {
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect %s.%s: %w", table, column, err)
+	}
+	if exists == 1 {
+		return nil
+	}
+	if _, err := tx.Exec(alter); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+func ensureJournalTable(tx *sqlx.Tx) error {
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		hash TEXT NOT NULL,
+		created_at BIGINT
+	)`)
+	if err != nil {
+		return fmt.Errorf("create drizzle journal: %w", err)
+	}
+	return nil
+}
+
+func ensureJournalTag(tx *sqlx.Tx, hash string, createdAt int64) error {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = ?`, hash).Scan(&count); err != nil {
+		return fmt.Errorf("inspect drizzle journal %s: %w", hash, err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)`, hash, createdAt); err != nil {
+		return fmt.Errorf("insert drizzle journal %s: %w", hash, err)
 	}
 	return nil
 }
