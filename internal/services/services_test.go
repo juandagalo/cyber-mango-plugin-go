@@ -886,3 +886,248 @@ func TestCreateCard_FailureMidWayLeavesNoCard(t *testing.T) {
 		t.Errorf("want 0 card_created activities after failed create, got %d", logs)
 	}
 }
+
+// --- H5 activity logging tests ---
+
+type activityRow struct {
+	BoardID string  `db:"board_id"`
+	CardID  *string `db:"card_id"`
+	Details *string `db:"details"`
+}
+
+func activityRows(t *testing.T, testDB *sqlx.DB, action string) []activityRow {
+	t.Helper()
+	var rows []activityRow
+	if err := testDB.Select(&rows, `SELECT board_id, card_id, details FROM activity_log WHERE action = ?`, action); err != nil {
+		t.Fatalf("select activity_log: %v", err)
+	}
+	return rows
+}
+
+func singleActivity(t *testing.T, testDB *sqlx.DB, action string) activityRow {
+	t.Helper()
+	rows := activityRows(t, testDB, action)
+	if len(rows) != 1 {
+		t.Fatalf("want exactly 1 %q activity, got %d", action, len(rows))
+	}
+	return rows[0]
+}
+
+func failActivityLog(t *testing.T, testDB *sqlx.DB) {
+	t.Helper()
+	if _, err := testDB.Exec(`CREATE TRIGGER fail_activity_log BEFORE INSERT ON activity_log BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+}
+
+func TestManageTags_CreateLogsActivity(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+
+	result, err := ManageTags(testDB, "create", "", "", "", "bug", "#ef4444")
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	tag := result.(*models.Tag)
+
+	row := singleActivity(t, testDB, "tag_created")
+	if row.BoardID != board.ID {
+		t.Errorf("board_id = %q, want %q", row.BoardID, board.ID)
+	}
+	if row.CardID != nil {
+		t.Errorf("card_id = %q, want NULL", *row.CardID)
+	}
+	if row.Details == nil || !strings.Contains(*row.Details, tag.Name) {
+		t.Errorf("details should mention the tag name %q, got %v", tag.Name, row.Details)
+	}
+}
+
+func TestManageTags_AssignLogsActivity(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+	card, _ := CreateCard(testDB, "", "", "", "Tagged Card", "", "", "", "", "")
+	result, _ := ManageTags(testDB, "create", "", "", "", "bug", "#ef4444")
+	tag := result.(*models.Tag)
+
+	if _, err := ManageTags(testDB, "assign", "", tag.ID, card.ID, "", ""); err != nil {
+		t.Fatalf("assign tag: %v", err)
+	}
+
+	row := singleActivity(t, testDB, "tag_assigned")
+	if row.BoardID != board.ID {
+		t.Errorf("board_id = %q, want %q", row.BoardID, board.ID)
+	}
+	if row.CardID == nil || *row.CardID != card.ID {
+		t.Errorf("card_id = %v, want %q", row.CardID, card.ID)
+	}
+}
+
+func TestManageTags_RemoveLogsActivity(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+	card, _ := CreateCard(testDB, "", "", "", "Tagged Card", "", "", "", "", "")
+	result, _ := ManageTags(testDB, "create", "", "", "", "bug", "#ef4444")
+	tag := result.(*models.Tag)
+	ManageTags(testDB, "assign", "", tag.ID, card.ID, "", "")
+
+	if _, err := ManageTags(testDB, "remove", "", tag.ID, card.ID, "", ""); err != nil {
+		t.Fatalf("remove tag: %v", err)
+	}
+
+	row := singleActivity(t, testDB, "tag_removed")
+	if row.BoardID != board.ID {
+		t.Errorf("board_id = %q, want %q", row.BoardID, board.ID)
+	}
+	if row.CardID == nil || *row.CardID != card.ID {
+		t.Errorf("card_id = %v, want %q", row.CardID, card.ID)
+	}
+}
+
+func TestManageTags_DeleteLogsActivity(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+	result, _ := ManageTags(testDB, "create", "", "", "", "bug", "#ef4444")
+	tag := result.(*models.Tag)
+
+	if _, err := ManageTags(testDB, "delete", "", tag.ID, "", "", ""); err != nil {
+		t.Fatalf("delete tag: %v", err)
+	}
+
+	row := singleActivity(t, testDB, "tag_deleted")
+	if row.BoardID != board.ID {
+		t.Errorf("board_id = %q, want %q", row.BoardID, board.ID)
+	}
+	if row.CardID != nil {
+		t.Errorf("card_id = %q, want NULL", *row.CardID)
+	}
+	if row.Details == nil || !strings.Contains(*row.Details, "bug") {
+		t.Errorf("details should mention the tag name, got %v", row.Details)
+	}
+}
+
+func TestManageTags_UnknownTagIsNotFound(t *testing.T) {
+	testDB := newTestDB(t)
+	card, _ := CreateCard(testDB, "", "", "", "Card", "", "", "", "", "")
+
+	for _, action := range []string{"assign", "remove", "delete"} {
+		_, err := ManageTags(testDB, action, "", "missing-tag", card.ID, "", "")
+		if err == nil || !strings.HasPrefix(err.Error(), "NOT_FOUND:") {
+			t.Errorf("%s with unknown tag: want NOT_FOUND error, got %v", action, err)
+		}
+	}
+	if rows := activityRows(t, testDB, "tag_assigned"); len(rows) != 0 {
+		t.Errorf("want no tag_assigned activity, got %d", len(rows))
+	}
+}
+
+func TestCreateCard_NewTagLogsTagCreatedOnce(t *testing.T) {
+	testDB := newTestDB(t)
+
+	if _, err := CreateCard(testDB, "", "", "", "First", "", "", "bug", "", ""); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if rows := activityRows(t, testDB, "tag_created"); len(rows) != 1 {
+		t.Fatalf("want 1 tag_created activity after creating a new tag, got %d", len(rows))
+	}
+
+	if _, err := CreateCard(testDB, "", "", "", "Second", "", "", "bug", "", ""); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if rows := activityRows(t, testDB, "tag_created"); len(rows) != 1 {
+		t.Errorf("reusing an existing tag must not log tag_created again, got %d rows", len(rows))
+	}
+}
+
+func TestManageTags_CreateFailedLogLeavesNoTag(t *testing.T) {
+	testDB := newTestDB(t)
+	failActivityLog(t, testDB)
+
+	_, err := ManageTags(testDB, "create", "", "", "", "bug", "#ef4444")
+	if err == nil {
+		t.Fatal("expected an error from the aborted activity insert")
+	}
+	if !strings.Contains(err.Error(), "log activity") {
+		t.Errorf("error should name the activity log failure, got %v", err)
+	}
+
+	var tags int
+	testDB.QueryRow(`SELECT COUNT(*) FROM tags`).Scan(&tags)
+	if tags != 0 {
+		t.Errorf("tag insert and its activity row are one transaction: want 0 tags, got %d", tags)
+	}
+}
+
+// Single-statement writes are not wrapped in a transaction: the write persists
+// even though the failed activity insert is reported to the caller.
+func TestDeleteCard_LogActivityErrorPropagates_WriteNotRolledBack(t *testing.T) {
+	testDB := newTestDB(t)
+	card, _ := CreateCard(testDB, "", "", "", "Delete Me", "", "", "", "", "")
+	failActivityLog(t, testDB)
+
+	err := DeleteCard(testDB, card.ID)
+	if err == nil {
+		t.Fatal("expected an error from the aborted activity insert")
+	}
+	if !strings.Contains(err.Error(), "log activity") {
+		t.Errorf("error should name the activity log failure, got %v", err)
+	}
+
+	var count int
+	testDB.QueryRow(`SELECT COUNT(*) FROM cards WHERE id = ?`, card.ID).Scan(&count)
+	if count != 0 {
+		t.Errorf("delete is not transactional with its log: want 0 cards, got %d", count)
+	}
+}
+
+func TestLogActivityErrorPropagates(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, testDB *sqlx.DB) error
+	}{
+		{"UpdateCard", func(t *testing.T, testDB *sqlx.DB) error {
+			card, _ := CreateCard(testDB, "", "", "", "Card", "", "", "", "", "")
+			failActivityLog(t, testDB)
+			_, err := UpdateCard(testDB, card.ID, "Renamed", "", "", "", "", false, "", "", "")
+			return err
+		}},
+		{"MoveCard", func(t *testing.T, testDB *sqlx.DB) error {
+			card, _ := CreateCard(testDB, "", "", "Backlog", "Card", "", "", "", "", "")
+			failActivityLog(t, testDB)
+			_, err := MoveCard(testDB, card.ID, "", "", "In Progress", nil)
+			return err
+		}},
+		{"CreateColumn", func(t *testing.T, testDB *sqlx.DB) error {
+			failActivityLog(t, testDB)
+			_, err := CreateColumn(testDB, "", "QA", "", "", nil)
+			return err
+		}},
+		{"createPhase", func(t *testing.T, testDB *sqlx.DB) error {
+			failActivityLog(t, testDB)
+			_, err := ManagePhases(testDB, "create", "", "", "Testing", "", nil)
+			return err
+		}},
+		{"updatePhase", func(t *testing.T, testDB *sqlx.DB) error {
+			list, _ := ManagePhases(testDB, "list", "", "", "", "", nil)
+			failActivityLog(t, testDB)
+			_, err := ManagePhases(testDB, "update", "", list.([]models.Phase)[0].ID, "Dev", "", nil)
+			return err
+		}},
+		{"deletePhase", func(t *testing.T, testDB *sqlx.DB) error {
+			list, _ := ManagePhases(testDB, "list", "", "", "", "", nil)
+			failActivityLog(t, testDB)
+			_, err := ManagePhases(testDB, "delete", "", list.([]models.Phase)[0].ID, "", "", nil)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.run(t, newTestDB(t))
+			if err == nil {
+				t.Fatal("expected the activity log failure to propagate")
+			}
+			if !strings.Contains(err.Error(), "log activity") {
+				t.Errorf("error should name the activity log failure, got %v", err)
+			}
+		})
+	}
+}

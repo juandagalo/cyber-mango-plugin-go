@@ -134,7 +134,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 67 tests total: 14 in `internal/db`, 50 in `internal/services`, 3 in `internal/sqltx`
+- 76 tests total: 14 in `internal/db`, 59 in `internal/services`, 3 in `internal/sqltx`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -155,7 +155,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 - All IDs are 12-char nanoid (via `go-nanoid/v2`)
 - All timestamps are UTC RFC3339 strings
-- Every write operation (create/update/move/delete card, create column) logs to `activity_log`
+- Every write operation (card create/update/move/delete, column create, phase create/update/delete/reorder, tag create/assign/remove/delete) logs to `activity_log`, and a `LogActivity` error propagates to the caller
 - Services are stateless functions taking `*sqlx.DB` — no service structs. The one interface is `services.Querier` (satisfied by `*sqlx.DB` and `*sqlx.Tx`), used only by helpers that must run inside a transaction
 - Multi-statement writes (create card + tags, reorder phases, seed, each migration step) run inside `sqltx.Run`. Everything inside the closure MUST use the `*sqlx.Tx`: the pool has one connection, so a call on `*sqlx.DB` while a tx is open blocks forever
 - Handlers struct (`internal/mcp/handlers.go`) holds `*sqlx.DB`, dispatches to service functions
@@ -181,7 +181,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H2 `move_card` with only `position` must keep the current column (`internal/services/card_service.go`)
 - [x] H3 Drop `omitempty` on `Column.Cards` and `Card.Tags`; `ListBoards` returns `[]` not `null`. `Board.Columns`/`Phases` keep `omitempty` on purpose: only `get_board` loads them
 - [x] H4 Transactions around create card + tags, reorder phases, seed, migration (`internal/sqltx`, `services.Querier`)
-- [ ] H5 Tag writes log activity; `LogActivity` errors propagate
+- [x] H5 Tag writes log activity (`tag_created/assigned/removed/deleted`, each inside `sqltx.Run`); `LogActivity` errors propagate everywhere
 - [ ] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause
 - [ ] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs)
 - [ ] H8 `session-stop` watermark per session, not global: read `session_id` from the hook stdin JSON, store one watermark per session, and compare with `>=` plus dedupe by ID (or RFC3339Nano timestamps) so same-second activity is not dropped. Concurrent sessions on the shared DB must not steal each other's summaries

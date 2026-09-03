@@ -50,6 +50,8 @@ func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimi
 		Cards: []models.Card{},
 	}
 
-	LogActivity(db, board.ID, nil, "column_created", fmt.Sprintf("Created column: %s", name), "")
+	if err := LogActivity(db, board.ID, nil, "column_created", fmt.Sprintf("Created column: %s", name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 	return col, nil
 }

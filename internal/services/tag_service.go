@@ -1,12 +1,15 @@
 package services
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
@@ -27,9 +30,23 @@ func ManageTags(db *sqlx.DB, action, boardID, tagID, cardID, name, color string)
 	}
 }
 
-func createTag(db Querier, boardID, name, color string) (*models.Tag, error) {
+func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
+	var tag *models.Tag
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		var err error
+		tag, err = createTagTx(tx, boardID, name, color)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tag, nil
+}
+
+// createTagTx writes the tag and its activity row, so q must be a *sqlx.Tx.
+func createTagTx(q Querier, boardID, name, color string) (*models.Tag, error) {
 	if boardID == "" {
-		board, err := ResolveBoard(db, "")
+		board, err := ResolveBoard(q, "")
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +65,7 @@ func createTag(db Querier, boardID, name, color string) (*models.Tag, error) {
 	id, _ := gonanoid.New(12)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := db.Exec(
+	_, err := q.Exec(
 		`INSERT INTO tags (id, board_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, boardID, name, color, now,
 	)
@@ -59,16 +76,21 @@ func createTag(db Querier, boardID, name, color string) (*models.Tag, error) {
 		return nil, fmt.Errorf("insert tag: %w", err)
 	}
 
+	if err := LogActivity(q, boardID, nil, "tag_created", fmt.Sprintf("Created tag: %s", name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
+
 	return &models.Tag{ID: id, BoardID: boardID, Name: name, Color: color, CreatedAt: now}, nil
 }
 
-// FindOrCreateTag matches name case-insensitively and creates with the default color.
-func FindOrCreateTag(db Querier, boardID, name string) (*models.Tag, error) {
+// FindOrCreateTag matches name case-insensitively and creates with the default
+// color. Creating writes two rows (tag + activity), so q must be a *sqlx.Tx.
+func FindOrCreateTag(q Querier, boardID, name string) (*models.Tag, error) {
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: tag name is required")
 	}
 	if boardID == "" {
-		board, err := ResolveBoard(db, "")
+		board, err := ResolveBoard(q, "")
 		if err != nil {
 			return nil, err
 		}
@@ -76,21 +98,45 @@ func FindOrCreateTag(db Querier, boardID, name string) (*models.Tag, error) {
 	}
 
 	var existing models.Tag
-	err := db.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name)
+	err := q.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name)
 	if err == nil {
 		return &existing, nil
 	}
 
-	return createTag(db, boardID, name, "#3b82f6")
+	return createTagTx(q, boardID, name, "#3b82f6")
+}
+
+func getTag(q Querier, tagID string) (*models.Tag, error) {
+	var tag models.Tag
+	err := q.Get(&tag, `SELECT id, board_id, name, color, created_at FROM tags WHERE id = ?`, tagID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("NOT_FOUND: tag not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get tag: %w", err)
+	}
+	return &tag, nil
 }
 
 func assignTag(db *sqlx.DB, cardID, tagID string) (map[string]interface{}, error) {
 	if cardID == "" || tagID == "" {
 		return nil, fmt.Errorf("VALIDATION: card_id and tag_id are required")
 	}
-	_, err := db.Exec(`INSERT OR IGNORE INTO card_tags (card_id, tag_id) VALUES (?, ?)`, cardID, tagID)
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		tag, err := getTag(tx, tagID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO card_tags (card_id, tag_id) VALUES (?, ?)`, cardID, tagID); err != nil {
+			return fmt.Errorf("assign tag: %w", err)
+		}
+		if err := LogActivity(tx, tag.BoardID, &cardID, "tag_assigned", fmt.Sprintf("Assigned tag: %s", tag.Name), ""); err != nil {
+			return fmt.Errorf("log activity: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("assign tag: %w", err)
+		return nil, err
 	}
 	return map[string]interface{}{"assigned": true, "card_id": cardID, "tag_id": tagID}, nil
 }
@@ -99,9 +145,21 @@ func removeTag(db *sqlx.DB, cardID, tagID string) (map[string]interface{}, error
 	if cardID == "" || tagID == "" {
 		return nil, fmt.Errorf("VALIDATION: card_id and tag_id are required")
 	}
-	_, err := db.Exec(`DELETE FROM card_tags WHERE card_id = ? AND tag_id = ?`, cardID, tagID)
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		tag, err := getTag(tx, tagID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM card_tags WHERE card_id = ? AND tag_id = ?`, cardID, tagID); err != nil {
+			return fmt.Errorf("remove tag: %w", err)
+		}
+		if err := LogActivity(tx, tag.BoardID, &cardID, "tag_removed", fmt.Sprintf("Removed tag: %s", tag.Name), ""); err != nil {
+			return fmt.Errorf("log activity: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("remove tag: %w", err)
+		return nil, err
 	}
 	return map[string]interface{}{"removed": true, "card_id": cardID, "tag_id": tagID}, nil
 }
@@ -128,8 +186,21 @@ func deleteTag(db *sqlx.DB, tagID string) (map[string]interface{}, error) {
 	if tagID == "" {
 		return nil, fmt.Errorf("VALIDATION: tag_id is required")
 	}
-	if _, err := db.Exec(`DELETE FROM tags WHERE id = ?`, tagID); err != nil {
-		return nil, fmt.Errorf("delete tag: %w", err)
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		tag, err := getTag(tx, tagID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, tagID); err != nil {
+			return fmt.Errorf("delete tag: %w", err)
+		}
+		if err := LogActivity(tx, tag.BoardID, nil, "tag_deleted", fmt.Sprintf("Deleted tag: %s", tag.Name), ""); err != nil {
+			return fmt.Errorf("log activity: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return map[string]interface{}{"deleted": true, "tag_id": tagID}, nil
 }

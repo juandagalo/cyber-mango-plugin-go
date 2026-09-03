@@ -169,11 +169,15 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	LogActivity(db, boardID, &cardID, "card_updated", fmt.Sprintf("Updated card: %s", card.Title), "")
+	if err := LogActivity(db, boardID, &cardID, "card_updated", fmt.Sprintf("Updated card: %s", card.Title), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 	if moved {
 		var colName string
 		db.QueryRow(`SELECT name FROM columns WHERE id = ?`, card.ColumnID).Scan(&colName)
-		LogActivity(db, boardID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", colName), "")
+		if err := LogActivity(db, boardID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", colName), ""); err != nil {
+			return nil, fmt.Errorf("log activity: %w", err)
+		}
 	}
 
 	card.Tags = []models.Tag{}
@@ -226,7 +230,9 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	card.Position = newPosition
 	card.UpdatedAt = now
 
-	LogActivity(db, col.BoardID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", col.Name), "")
+	if err := LogActivity(db, col.BoardID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", col.Name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	card.Tags = []models.Tag{}
 	return &card, nil
@@ -244,6 +250,8 @@ func DeleteCard(db *sqlx.DB, cardID string) error {
 		return fmt.Errorf("delete card: %w", err)
 	}
 
-	LogActivity(db, boardID, &cardID, "card_deleted", "Card deleted", "")
+	if err := LogActivity(db, boardID, &cardID, "card_deleted", "Card deleted", ""); err != nil {
+		return fmt.Errorf("log activity: %w", err)
+	}
 	return nil
 }

@@ -143,7 +143,9 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("insert phase: %w", err)
 	}
 
-	LogActivity(db, boardID, nil, "phase_created", fmt.Sprintf("Created phase: %s", name), "")
+	if err := LogActivity(db, boardID, nil, "phase_created", fmt.Sprintf("Created phase: %s", name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	return &models.Phase{ID: id, BoardID: boardID, Name: name, Color: color, Position: position, CreatedAt: now, UpdatedAt: now}, nil
 }
@@ -187,7 +189,9 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("update phase: %w", err)
 	}
 
-	LogActivity(db, phase.BoardID, nil, "phase_updated", fmt.Sprintf("Updated phase: %s", phase.Name), "")
+	if err := LogActivity(db, phase.BoardID, nil, "phase_updated", fmt.Sprintf("Updated phase: %s", phase.Name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	return &phase, nil
 }
@@ -206,7 +210,9 @@ func deletePhase(db *sqlx.DB, phaseID string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("delete phase: %w", err)
 	}
 
-	LogActivity(db, phase.BoardID, nil, "phase_deleted", fmt.Sprintf("Deleted phase: %s", phase.Name), "")
+	if err := LogActivity(db, phase.BoardID, nil, "phase_deleted", fmt.Sprintf("Deleted phase: %s", phase.Name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	return map[string]interface{}{"deleted": true, "phase_id": phaseID}, nil
 }
