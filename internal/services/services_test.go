@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -816,5 +817,72 @@ func TestListBoards_Empty_JSONIsArray(t *testing.T) {
 	out, _ := json.Marshal(boards)
 	if string(out) != `[]` {
 		t.Errorf("ListBoards on empty DB must marshal to [], got %s", out)
+	}
+}
+
+// --- H4 atomicity tests ---
+
+func TestReorderPhases_FailureMidWayKeepsOriginalPositions(t *testing.T) {
+	testDB := newTestDB(t)
+	list, _ := ManagePhases(testDB, "list", "", "", "", "", nil)
+	phases := list.([]models.Phase)
+
+	reversed := make([]string, len(phases))
+	for i, p := range phases {
+		reversed[len(phases)-1-i] = p.ID
+	}
+
+	// The third UPDATE of the reorder aborts after the first two succeeded.
+	if _, err := testDB.Exec(fmt.Sprintf(
+		`CREATE TRIGGER fail_third_update BEFORE UPDATE ON phases WHEN NEW.id = '%s' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`,
+		reversed[2],
+	)); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	_, err := ManagePhases(testDB, "reorder", "", "", "", "", reversed)
+	if err == nil {
+		t.Fatal("expected an error from the aborted reorder")
+	}
+
+	after, _ := ManagePhases(testDB, "list", "", "", "", "", nil)
+	for i, p := range after.([]models.Phase) {
+		if p.ID != phases[i].ID || p.Position != phases[i].Position {
+			t.Errorf("phase %d changed after failed reorder: want %s@%v, got %s@%v", i, phases[i].ID, phases[i].Position, p.ID, p.Position)
+		}
+	}
+
+	var logCount int
+	testDB.QueryRow(`SELECT COUNT(*) FROM activity_log WHERE action = 'phases_reordered'`).Scan(&logCount)
+	if logCount != 0 {
+		t.Errorf("want no phases_reordered activity after failed reorder, got %d", logCount)
+	}
+}
+
+func TestCreateCard_FailureMidWayLeavesNoCard(t *testing.T) {
+	testDB := newTestDB(t)
+
+	// Card, activity log and tag rows are already written when this fires.
+	if _, err := testDB.Exec(`CREATE TRIGGER fail_card_tags BEFORE INSERT ON card_tags BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	_, err := CreateCard(testDB, "", "", "Backlog", "Atomic Card", "", "", "bug", "", "")
+	if err == nil {
+		t.Fatal("expected an error from the aborted card_tags insert")
+	}
+
+	var cards, tags, logs int
+	testDB.QueryRow(`SELECT COUNT(*) FROM cards`).Scan(&cards)
+	testDB.QueryRow(`SELECT COUNT(*) FROM tags`).Scan(&tags)
+	testDB.QueryRow(`SELECT COUNT(*) FROM activity_log WHERE action = 'card_created'`).Scan(&logs)
+	if cards != 0 {
+		t.Errorf("want 0 cards after failed create, got %d", cards)
+	}
+	if tags != 0 {
+		t.Errorf("want 0 tags after failed create, got %d", tags)
+	}
+	if logs != 0 {
+		t.Errorf("want 0 card_created activities after failed create, got %d", logs)
 	}
 }

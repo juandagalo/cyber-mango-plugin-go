@@ -27,7 +27,7 @@ func ManageTags(db *sqlx.DB, action, boardID, tagID, cardID, name, color string)
 	}
 }
 
-func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
+func createTag(db Querier, boardID, name, color string) (*models.Tag, error) {
 	if boardID == "" {
 		board, err := ResolveBoard(db, "")
 		if err != nil {
@@ -63,7 +63,7 @@ func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
 }
 
 // FindOrCreateTag matches name case-insensitively and creates with the default color.
-func FindOrCreateTag(db *sqlx.DB, boardID, name string) (*models.Tag, error) {
+func FindOrCreateTag(db Querier, boardID, name string) (*models.Tag, error) {
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: tag name is required")
 	}

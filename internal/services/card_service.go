@@ -7,17 +7,31 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
 // CreateCard auto-creates and assigns each comma-separated name in tags.
 func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority, tags, phaseID, phaseName string) (*models.Card, error) {
-	board, err := ResolveBoard(db, boardID)
+	var card *models.Card
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		var err error
+		card, err = createCardTx(tx, boardID, columnID, columnName, title, description, priority, tags, phaseID, phaseName)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return card, nil
+}
+
+func createCardTx(tx *sqlx.Tx, boardID, columnID, columnName, title, description, priority, tags, phaseID, phaseName string) (*models.Card, error) {
+	board, err := ResolveBoard(tx, boardID)
 	if err != nil {
 		return nil, err
 	}
 
-	col, err := ResolveColumn(db, board.ID, columnID, columnName)
+	col, err := ResolveColumn(tx, board.ID, columnID, columnName)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +49,7 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 
 	var resolvedPhaseID *string
 	if phaseID != "" || phaseName != "" {
-		phase, err := ResolvePhase(db, board.ID, phaseID, phaseName)
+		phase, err := ResolvePhase(tx, board.ID, phaseID, phaseName)
 		if err != nil {
 			return nil, err
 		}
@@ -45,13 +59,13 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 	}
 
 	var maxPos float64
-	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM cards WHERE column_id = ?`, col.ID).Scan(&maxPos)
+	tx.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM cards WHERE column_id = ?`, col.ID).Scan(&maxPos)
 	position := maxPos + 1
 
 	id, _ := gonanoid.New(12)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.Exec(
+	_, err = tx.Exec(
 		`INSERT INTO cards (id, column_id, title, description, priority, position, phase_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, col.ID, title, description, priority, position, resolvedPhaseID, now, now,
 	)
@@ -66,7 +80,9 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 		Tags: []models.Tag{},
 	}
 
-	LogActivity(db, board.ID, &id, "card_created", fmt.Sprintf("Created card: %s", title), "")
+	if err := LogActivity(tx, board.ID, &id, "card_created", fmt.Sprintf("Created card: %s", title), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	if tags != "" {
 		for _, raw := range strings.Split(tags, ",") {
@@ -74,11 +90,13 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 			if tagName == "" {
 				continue
 			}
-			tag, err := FindOrCreateTag(db, board.ID, tagName)
+			tag, err := FindOrCreateTag(tx, board.ID, tagName)
 			if err != nil {
-				continue
+				return nil, err
 			}
-			db.Exec(`INSERT OR IGNORE INTO card_tags (card_id, tag_id) VALUES (?, ?)`, id, tag.ID)
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO card_tags (card_id, tag_id) VALUES (?, ?)`, id, tag.ID); err != nil {
+				return nil, fmt.Errorf("assign tag %q: %w", tagName, err)
+			}
 			card.Tags = append(card.Tags, *tag)
 		}
 	}

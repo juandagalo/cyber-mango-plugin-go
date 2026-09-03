@@ -5,13 +5,18 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
 // SeedDefaultBoard is a no-op when any board exists.
 func SeedDefaultBoard(db *sqlx.DB) error {
+	return sqltx.Run(db, seedDefaultBoard)
+}
+
+func seedDefaultBoard(tx *sqlx.Tx) error {
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM boards`).Scan(&count); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM boards`).Scan(&count); err != nil {
 		return fmt.Errorf("count boards: %w", err)
 	}
 	if count > 0 {
@@ -24,7 +29,7 @@ func SeedDefaultBoard(db *sqlx.DB) error {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.Exec(
+	_, err = tx.Exec(
 		`INSERT INTO boards (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
 		boardID, "Cyber Mango", "Default kanban board", now, now,
 	)
@@ -50,7 +55,7 @@ func SeedDefaultBoard(db *sqlx.DB) error {
 		if err != nil {
 			return fmt.Errorf("generate column id: %w", err)
 		}
-		_, err = db.Exec(
+		_, err = tx.Exec(
 			`INSERT INTO columns (id, board_id, name, color, position, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			colID, boardID, col.name, col.color, col.position, col.description, now, now,
 		)
@@ -76,7 +81,7 @@ func SeedDefaultBoard(db *sqlx.DB) error {
 		if err != nil {
 			return fmt.Errorf("generate phase id: %w", err)
 		}
-		_, err = db.Exec(
+		_, err = tx.Exec(
 			`INSERT INTO phases (id, board_id, name, color, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			phID, boardID, ph.name, ph.color, ph.position, now, now,
 		)

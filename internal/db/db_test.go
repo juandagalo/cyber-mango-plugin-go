@@ -355,3 +355,76 @@ func TestOpen_SingleConnectionPool(t *testing.T) {
 		t.Errorf("MaxOpenConnections = %d, want 1 (SQLite pragmas and :memory: are per-connection)", got)
 	}
 }
+
+// --- H4 atomicity tests ---
+
+func TestSeedDefaultBoard_FailureMidWayLeavesNothing(t *testing.T) {
+	db := newTestDB(t)
+
+	// Board, columns and two phases are already written when this fires.
+	if _, err := db.Exec(`CREATE TRIGGER fail_qa_phase BEFORE INSERT ON phases WHEN NEW.name = 'QA' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	if err := SeedDefaultBoard(db); err == nil {
+		t.Fatal("expected an error from the aborted phase insert")
+	}
+
+	for _, tbl := range []string{"boards", "columns", "phases"} {
+		var count int
+		db.QueryRow(`SELECT COUNT(*) FROM ` + tbl).Scan(&count)
+		if count != 0 {
+			t.Errorf("want 0 rows in %s after failed seed, got %d", tbl, count)
+		}
+	}
+
+	if _, err := db.Exec(`DROP TRIGGER fail_qa_phase`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	if err := SeedDefaultBoard(db); err != nil {
+		t.Fatalf("seed after rollback: %v", err)
+	}
+	var phaseCount int
+	db.QueryRow(`SELECT COUNT(*) FROM phases`).Scan(&phaseCount)
+	if phaseCount != 5 {
+		t.Errorf("want 5 phases after retried seed, got %d", phaseCount)
+	}
+}
+
+func TestMigration_V2ToV3_FailureMidWayKeepsVersion(t *testing.T) {
+	db := newTestDBAtV2(t)
+
+	// The ALTER TABLE and the version stamp are already applied when this fires.
+	if _, err := db.Exec(`CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at BIGINT)`); err != nil {
+		t.Fatalf("create drizzle table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_journal BEFORE INSERT ON __drizzle_migrations BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	if err := RunMigrations(db); err == nil {
+		t.Fatal("expected an error from the aborted journal insert")
+	}
+
+	var version string
+	db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
+	if version != "2" {
+		t.Errorf("want schema_version 2 after failed migration, got %q", version)
+	}
+	var hasDescription int
+	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name = 'description'`).Scan(&hasDescription)
+	if hasDescription != 0 {
+		t.Errorf("want no description column after failed migration, got %d", hasDescription)
+	}
+
+	if _, err := db.Exec(`DROP TRIGGER fail_journal`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migration after rollback: %v", err)
+	}
+	db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
+	if version != "3" {
+		t.Errorf("want schema_version 3 after retried migration, got %q", version)
+	}
+}

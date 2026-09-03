@@ -15,7 +15,7 @@ func ListBoards(db *sqlx.DB) ([]models.Board, error) {
 }
 
 // ResolveBoard falls back to the oldest board when boardID is empty.
-func ResolveBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
+func ResolveBoard(db Querier, boardID string) (*models.Board, error) {
 	var board models.Board
 	var query string
 	var args []interface{}
@@ -34,7 +34,7 @@ func ResolveBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 }
 
 // ResolveColumn matches by ID, then by case-insensitive name, then falls back to the board's first column. It never errors on empty input.
-func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.Column, error) {
+func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Column, error) {
 	var col models.Column
 
 	if columnID != "" {

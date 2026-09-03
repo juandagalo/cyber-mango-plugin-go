@@ -4,10 +4,13 @@ import (
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 )
 
 const currentSchemaVersion = "3"
 
+// RunMigrations runs each step (DDL, version stamp, journal row) in its own
+// transaction, so a failed step leaves the previous version fully intact.
 func RunMigrations(db *sqlx.DB) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 		return fmt.Errorf("create _meta: %w", err)
@@ -16,29 +19,26 @@ func RunMigrations(db *sqlx.DB) error {
 	var version string
 	err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil {
-		if err := createSchema(db); err != nil {
-			return err
-		}
-		if _, err = db.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {
+		if err := sqltx.Run(db, createSchema); err != nil {
 			return err
 		}
 	}
 
 	if version == "1" {
-		if err := migrateV1ToV2(db); err != nil {
+		if err := sqltx.Run(db, migrateV1ToV2); err != nil {
 			return err
 		}
 		version = "2"
 	}
 
 	if version == "2" {
-		if err := migrateV2ToV3(db); err != nil {
+		if err := sqltx.Run(db, migrateV2ToV3); err != nil {
 			return err
 		}
 		version = "3"
 	}
 
-	if err := ensureDrizzleJournal(db); err != nil {
+	if err := sqltx.Run(db, ensureDrizzleJournal); err != nil {
 		return fmt.Errorf("drizzle journal: %w", err)
 	}
 
@@ -47,8 +47,8 @@ func RunMigrations(db *sqlx.DB) error {
 
 // ensureDrizzleJournal marks the web UI's Drizzle migrations as applied so it
 // does not re-run CREATE TABLE against a schema this plugin already created.
-func ensureDrizzleJournal(db *sqlx.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+func ensureDrizzleJournal(tx *sqlx.Tx) error {
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		hash TEXT NOT NULL,
 		created_at BIGINT
@@ -58,23 +58,23 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 	}
 
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
+	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
 	if count == 0 {
-		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`); err != nil {
+		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0000_wandering_sister_grimm', 1776186662950)`); err != nil {
 			return err
 		}
 	}
 
-	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0001_right_polaris'`).Scan(&count)
+	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0001_right_polaris'`).Scan(&count)
 	if count == 0 {
-		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0001_right_polaris', 1776299103511)`); err != nil {
+		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0001_right_polaris', 1776299103511)`); err != nil {
 			return err
 		}
 	}
 
-	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0002_old_vengeance'`).Scan(&count)
+	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0002_old_vengeance'`).Scan(&count)
 	if count == 0 {
-		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0002_old_vengeance', 1776799182756)`); err != nil {
+		if _, err = tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0002_old_vengeance', 1776799182756)`); err != nil {
 			return err
 		}
 	}
@@ -82,8 +82,8 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 	return nil
 }
 
-func migrateV1ToV2(db *sqlx.DB) error {
-	_, err := db.Exec(`
+func migrateV1ToV2(tx *sqlx.Tx) error {
+	_, err := tx.Exec(`
 CREATE TABLE IF NOT EXISTS phases (
   id TEXT PRIMARY KEY NOT NULL,
   board_id TEXT NOT NULL,
@@ -103,35 +103,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name
 
 	// SQLite has no ADD COLUMN IF NOT EXISTS.
 	var exists int
-	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'phase_id'`).Scan(&exists)
+	tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'phase_id'`).Scan(&exists)
 	if exists == 0 {
-		if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`); err != nil {
+		if _, err := tx.Exec(`ALTER TABLE cards ADD COLUMN phase_id TEXT REFERENCES phases(id) ON DELETE SET NULL`); err != nil {
 			return fmt.Errorf("migrate v1->v2 alter cards: %w", err)
 		}
 	}
 
-	if _, err := db.Exec(`UPDATE _meta SET value = '2' WHERE key = 'schema_version'`); err != nil {
+	if _, err := tx.Exec(`UPDATE _meta SET value = '2' WHERE key = 'schema_version'`); err != nil {
 		return fmt.Errorf("update schema version: %w", err)
 	}
 	return nil
 }
 
-func migrateV2ToV3(db *sqlx.DB) error {
+func migrateV2ToV3(tx *sqlx.Tx) error {
 	// SQLite has no ADD COLUMN IF NOT EXISTS.
 	var exists int
-	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name = 'description'`).Scan(&exists)
+	tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name = 'description'`).Scan(&exists)
 	if exists == 0 {
-		if _, err := db.Exec(`ALTER TABLE columns ADD COLUMN description TEXT`); err != nil {
+		if _, err := tx.Exec(`ALTER TABLE columns ADD COLUMN description TEXT`); err != nil {
 			return fmt.Errorf("migrate v2->v3 alter columns: %w", err)
 		}
 	}
 
-	if _, err := db.Exec(`UPDATE _meta SET value = '3' WHERE key = 'schema_version'`); err != nil {
+	if _, err := tx.Exec(`UPDATE _meta SET value = '3' WHERE key = 'schema_version'`); err != nil {
 		return fmt.Errorf("migrate v2->v3 update schema version: %w", err)
 	}
 
 	// May run before ensureDrizzleJournal.
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		hash TEXT NOT NULL,
 		created_at BIGINT
@@ -140,16 +140,16 @@ func migrateV2ToV3(db *sqlx.DB) error {
 	}
 
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0003_overjoyed_reaper'`).Scan(&count)
+	tx.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0003_overjoyed_reaper'`).Scan(&count)
 	if count == 0 {
-		if _, err := db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0003_overjoyed_reaper', 1776977991688)`); err != nil {
+		if _, err := tx.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0003_overjoyed_reaper', 1776977991688)`); err != nil {
 			return fmt.Errorf("migrate v2->v3 drizzle journal: %w", err)
 		}
 	}
 	return nil
 }
 
-func createSchema(db *sqlx.DB) error {
+func createSchema(tx *sqlx.Tx) error {
 	schema := `
 CREATE TABLE IF NOT EXISTS boards (
   id TEXT PRIMARY KEY,
@@ -228,6 +228,11 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `
-	_, err := db.Exec(schema)
-	return err
+	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {
+		return fmt.Errorf("stamp schema version: %w", err)
+	}
+	return nil
 }

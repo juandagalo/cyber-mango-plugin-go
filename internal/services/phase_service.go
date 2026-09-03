@@ -8,11 +8,12 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
 // ResolvePhase returns nil, nil when neither phaseID nor phaseName is given.
-func ResolvePhase(db *sqlx.DB, boardID, phaseID, phaseName string) (*models.Phase, error) {
+func ResolvePhase(db Querier, boardID, phaseID, phaseName string) (*models.Phase, error) {
 	if phaseID == "" && phaseName == "" {
 		return nil, nil
 	}
@@ -211,8 +212,21 @@ func deletePhase(db *sqlx.DB, phaseID string) (map[string]interface{}, error) {
 }
 
 func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.Phase, error) {
+	var result []models.Phase
+	err := sqltx.Run(db, func(tx *sqlx.Tx) error {
+		var err error
+		result, err = reorderPhasesTx(tx, boardID, orderedIDs)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func reorderPhasesTx(tx *sqlx.Tx, boardID string, orderedIDs []string) ([]models.Phase, error) {
 	if boardID == "" {
-		board, err := ResolveBoard(db, "")
+		board, err := ResolveBoard(tx, "")
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +238,7 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 	}
 
 	var phases []models.Phase
-	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
+	if err := tx.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return nil, err
 	}
 
@@ -251,20 +265,22 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 	now := time.Now().UTC().Format(time.RFC3339)
 	for i, id := range orderedIDs {
 		pos := float64(i + 1)
-		if _, err := db.Exec(`UPDATE phases SET position = ?, updated_at = ? WHERE id = ?`, pos, now, id); err != nil {
+		if _, err := tx.Exec(`UPDATE phases SET position = ?, updated_at = ? WHERE id = ?`, pos, now, id); err != nil {
 			return nil, fmt.Errorf("reorder phase: %w", err)
 		}
 	}
 
 	var result []models.Phase
-	if err := db.Select(&result, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
+	if err := tx.Select(&result, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return nil, err
 	}
 	if result == nil {
 		result = []models.Phase{}
 	}
 
-	LogActivity(db, boardID, nil, "phases_reordered", "Phases reordered", "")
+	if err := LogActivity(tx, boardID, nil, "phases_reordered", "Phases reordered", ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
 
 	return result, nil
 }
