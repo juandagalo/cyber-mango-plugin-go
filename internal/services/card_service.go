@@ -177,19 +177,23 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 		return nil, fmt.Errorf("NOT_FOUND: card not found")
 	}
 
-	board, err := ResolveBoard(db, boardID)
-	if err != nil {
-		return nil, err
+	var currentCol models.Column
+	if err := db.Get(&currentCol, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, card.ColumnID); err != nil {
+		return nil, fmt.Errorf("NOT_FOUND: current column not found")
 	}
 
-	col, err := ResolveColumn(db, board.ID, columnID, columnName)
-	if err != nil {
-		// If no column specified, keep current column
-		var currentCol models.Column
-		if err := db.Get(&currentCol, `SELECT id, board_id, name, color, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, card.ColumnID); err != nil {
-			return nil, fmt.Errorf("NOT_FOUND: current column not found")
+	// No target column means reposition within the current one. ResolveColumn
+	// would otherwise fall back to the board's first column.
+	col := &currentCol
+	if columnID != "" || columnName != "" {
+		if boardID == "" {
+			boardID = currentCol.BoardID
 		}
-		col = &currentCol
+		target, err := ResolveColumn(db, boardID, columnID, columnName)
+		if err != nil {
+			return nil, err
+		}
+		col = target
 	}
 
 	newPosition := card.Position
@@ -203,7 +207,7 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.Exec(
+	_, err := db.Exec(
 		`UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?`,
 		col.ID, newPosition, now, cardID,
 	)
@@ -215,7 +219,7 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	card.Position = newPosition
 	card.UpdatedAt = now
 
-	LogActivity(db, board.ID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", col.Name), "")
+	LogActivity(db, col.BoardID, &cardID, "card_moved", fmt.Sprintf("Moved card to column: %s", col.Name), "")
 
 	card.Tags = []models.Tag{}
 	return &card, nil

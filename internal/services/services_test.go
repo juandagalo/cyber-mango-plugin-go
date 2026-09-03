@@ -746,3 +746,29 @@ func TestGetBoardSummary_ByPhase(t *testing.T) {
 		t.Errorf("want 2 for %s, got %d", phases[0].Name, summary.ByPhase[phases[0].Name])
 	}
 }
+
+func TestMoveCard_PositionOnly_KeepsCurrentColumn(t *testing.T) {
+	testDB := newTestDB(t)
+	card, err := CreateCard(testDB, "", "", "In Progress", "Reposition Me", "", "", "", "", "")
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+
+	pos := 5.0
+	moved, err := MoveCard(testDB, card.ID, "", "", "", &pos)
+	if err != nil {
+		t.Fatalf("MoveCard: %v", err)
+	}
+	if moved.ColumnID != card.ColumnID {
+		t.Errorf("column changed: got %s, want %s (position-only move must stay in the current column)", moved.ColumnID, card.ColumnID)
+	}
+	if moved.Position != pos {
+		t.Errorf("position = %v, want %v", moved.Position, pos)
+	}
+
+	var dbColumnID string
+	testDB.QueryRow(`SELECT column_id FROM cards WHERE id = ?`, card.ID).Scan(&dbColumnID)
+	if dbColumnID != card.ColumnID {
+		t.Errorf("persisted column_id = %s, want %s", dbColumnID, card.ColumnID)
+	}
+}
