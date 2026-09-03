@@ -38,8 +38,8 @@ Do NOT run `make build` after code changes automatically — only build when exp
 | Binary | Entry Point | Purpose |
 |--------|-------------|---------|
 | `mcp-server` | `cmd/mcp-server/main.go` | MCP server over stdio (JSON-RPC). Opens DB, runs migrations, seeds default board, serves tools. |
-| `session-start` | `cmd/session-start/main.go` | SessionStart hook. Outputs board summary as `{"systemMessage": "..."}` JSON to stdout. Silent exit on any error. |
-| `session-stop` | `cmd/session-stop/main.go` | Stop hook. Outputs activity summary (last 30 min) as `{"systemMessage": "..."}` JSON. Silent exit if no activity. |
+| `session-start` | `cmd/session-start/main.go` | SessionStart hook. Reads `session_id` from stdin, records the session's activity watermark, outputs board summary as `{"systemMessage": "..."}` JSON to stdout. Silent exit on any error. |
+| `session-stop` | `cmd/session-stop/main.go` | Stop hook. Reads `session_id` from stdin, outputs the activity summary since that session's watermark (last 30 min when unknown) as `{"systemMessage": "..."}` JSON. Silent exit if no activity. |
 
 ### Internal Packages (internal/)
 
@@ -48,6 +48,7 @@ Do NOT run `make build` after code changes automatically — only build when exp
 | `db` | `connection.go`, `migration.go`, `seed.go`, `db_test.go` | DB connection with pragmas (WAL, FK, busy_timeout), schema migration (versioned via `_meta` table), default board seed. |
 | `models` | `models.go` | Data structs: Board, Column, Card, Phase, Tag, ActivityLog, BoardSummary, ColumnSummary. All use `db:` and `json:` struct tags. |
 | `services` | `board_service.go`, `card_service.go`, `column_service.go`, `tag_service.go`, `phase_service.go`, `activity_service.go`, `services_test.go` | Business logic. All functions take `*sqlx.DB` as first arg (no service structs). Activity logging on every write operation. |
+| `hooks` | `startreport.go`, `stopreport.go`, tests | Logic behind both hook binaries: stdin `session_id` parsing, board summary text, per-session activity watermark in `_meta` (`stop_report:<session_id>`, JSON with `since`, `seen_ids`, `updated_at`; pruned after 7 days), plain-text activity summary. |
 | `sqltx` | `sqltx.go`, `sqltx_test.go` | `Run(db, fn)`: begin/commit, rollback on error (returned unchanged) or panic. |
 | `mcp` | `server.go`, `handlers.go` | MCP tool registration and handler dispatch. `Handlers` struct holds `*sqlx.DB`. Uses `req.GetString(key, "")` (mcp-go v0.44.0 API). |
 
@@ -67,7 +68,7 @@ Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes no env vars: the DB
 | Event | Binary/Command | Timeout | Output |
 |-------|----------------|---------|--------|
 | `SessionStart` | `session-start.exe` | 10s | Board summary (card counts, priority alerts, phase breakdown) |
-| `Stop` | `session-stop.exe` | 5s | Activity summary (card + phase actions) |
+| `Stop` | `session-stop.exe` | 5s | Activity summary (card, column, phase and tag actions) since the session started |
 | `PostToolUse` (mem_save) | inline echo | 3s | Reminder to check if board needs updating after engram save |
 
 ### Skills (skills/)
@@ -134,13 +135,14 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 81 tests total: 16 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`
+- 93 tests total: 16 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`, 12 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
 
 ## Gotchas
 
+- **Activity timestamps come in two formats** — `LogActivity` writes RFC3339 (`...T...Z`); the web UI relies on SQLite's `datetime('now')` default (`YYYY-MM-DD HH:MM:SS`). Never compare `created_at` as a string; wrap both sides in `datetime()` as `internal/hooks` does.
 - **Hook output is plain text** — Claude Code does NOT render markdown in hook `systemMessage`. Use CAPS and indentation for visual hierarchy, never `##`, `**`, or emojis.
 - **Hooks don't support `env` field** — Unlike `.mcp.json`, `hooks.json` has no `env` field. Inline `${VAR}` substitution is also broken for SessionStart hooks (known Claude Code bugs). This is why `CLAUDE_PLUGIN_DATA` is excluded from DB path resolution — both MCP server and hooks must converge on `~/.cyber-mango/kanban.db`.
 - **Version lives in 3 places** — `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `internal/mcp/server.go` (`NewMCPServer("cyber-mango", "0.2.0", ...)`). Keep them in sync on version bumps.
@@ -185,7 +187,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H5 Tag writes log activity (`tag_created/assigned/removed/deleted`, each inside `sqltx.Run`); `LogActivity` errors propagate everywhere
 - [x] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause (`getCard`, `getPhase`, `getTag` helpers)
 - [x] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs); guards extracted into `ensureX` helpers
-- [ ] H8 `session-stop` watermark per session, not global: read `session_id` from the hook stdin JSON, store one watermark per session, and compare with `>=` plus dedupe by ID (or RFC3339Nano timestamps) so same-second activity is not dropped. Concurrent sessions on the shared DB must not steal each other's summaries
+- [x] H8 `session-stop` watermark per session (`internal/hooks`): `session_id` from stdin, `stop_report:<id>` key, `datetime(created_at) >= datetime(?)` plus `seen_ids` dedupe, 30-min fallback, 7-day prune
 - [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once
 - [ ] H10 `GetBoardSummary` single GROUP BY query
 - [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
