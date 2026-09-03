@@ -7,12 +7,11 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// ResolvePhase resolves a phase by ID or name (case-insensitive) within a board.
-// Returns nil, nil if both phaseID and phaseName are empty (no phase requested).
+// ResolvePhase returns nil, nil when neither phaseID nor phaseName is given.
 func ResolvePhase(db *sqlx.DB, boardID, phaseID, phaseName string) (*models.Phase, error) {
 	if phaseID == "" && phaseName == "" {
 		return nil, nil
@@ -33,7 +32,6 @@ func ResolvePhase(db *sqlx.DB, boardID, phaseID, phaseName string) (*models.Phas
 	return &phase, nil
 }
 
-// ManagePhases dispatches to the appropriate phase operation.
 func ManagePhases(db *sqlx.DB, action, boardID, phaseID, name, color string, orderedIDs []string) (interface{}, error) {
 	switch action {
 	case "list":
@@ -51,13 +49,12 @@ func ManagePhases(db *sqlx.DB, action, boardID, phaseID, name, color string, ord
 	}
 }
 
-// ParseOrderedIDs parses ordered_ids from a JSON array string or comma-separated string.
+// ParseOrderedIDs accepts a JSON array or a comma-separated list.
 func ParseOrderedIDs(raw string) ([]string, error) {
 	if raw == "" {
 		return nil, nil
 	}
 
-	// Try JSON array first
 	raw = strings.TrimSpace(raw)
 	if strings.HasPrefix(raw, "[") {
 		var ids []string
@@ -67,7 +64,6 @@ func ParseOrderedIDs(raw string) ([]string, error) {
 		return ids, nil
 	}
 
-	// Fallback: comma-separated
 	parts := strings.Split(raw, ",")
 	ids := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -120,20 +116,17 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("VALIDATION: color must be a 7-character hex color (e.g. #00FFFF)")
 	}
 
-	// Check board exists
 	var boardExists int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM boards WHERE id = ?`, boardID).Scan(&boardExists); err != nil || boardExists == 0 {
 		return nil, fmt.Errorf("NOT_FOUND: board not found")
 	}
 
-	// Check name uniqueness on board
 	var existing int
 	db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name).Scan(&existing)
 	if existing > 0 {
 		return nil, fmt.Errorf("CONFLICT: phase %q already exists on this board", name)
 	}
 
-	// Position: max + 1
 	var maxPos float64
 	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM phases WHERE board_id = ?`, boardID).Scan(&maxPos)
 	position := maxPos + 1.0
@@ -168,7 +161,6 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 		if len(name) > 50 {
 			return nil, fmt.Errorf("VALIDATION: name must be 50 characters or less")
 		}
-		// Check uniqueness excluding self
 		var existing int
 		db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?) AND id != ?`, phase.BoardID, name, phaseID).Scan(&existing)
 		if existing > 0 {
@@ -231,7 +223,6 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 		return nil, fmt.Errorf("VALIDATION: ordered_ids is required for reorder")
 	}
 
-	// Validate all IDs belong to this board
 	var phases []models.Phase
 	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return nil, err
@@ -257,7 +248,6 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 		seen[id] = true
 	}
 
-	// Assign sequential positions
 	now := time.Now().UTC().Format(time.RFC3339)
 	for i, id := range orderedIDs {
 		pos := float64(i + 1)
@@ -266,7 +256,6 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 		}
 	}
 
-	// Return updated list
 	var result []models.Phase
 	if err := db.Select(&result, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return nil, err

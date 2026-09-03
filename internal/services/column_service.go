@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// CreateColumn creates a new column on a board.
 func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimit *int) (*models.Column, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
@@ -24,13 +23,11 @@ func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimi
 		color = "#6b7280"
 	}
 
-	// Convert empty/whitespace-only description to nil (stored as NULL).
 	var descPtr *string
 	if trimmed := strings.TrimSpace(description); trimmed != "" {
 		descPtr = &trimmed
 	}
 
-	// Position: max + 1000
 	var maxPos float64
 	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM columns WHERE board_id = ?`, board.ID).Scan(&maxPos)
 	position := maxPos + 1000

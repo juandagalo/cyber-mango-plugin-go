@@ -15,7 +15,7 @@ func main() {
 
 	database, err := db.Open(dbPath)
 	if err != nil {
-		// DB not available yet — silent exit (no board to show)
+		// Hooks must exit 0 with no output on any failure.
 		os.Exit(0)
 	}
 	defer database.Close()
@@ -33,7 +33,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Build the system message (plain text — Claude Code does not render markdown in hook output)
+	// Plain text only: Claude Code does not render markdown in hook output.
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Cyber Mango Board: %s\n\n", summary.BoardName))
 	sb.WriteString(fmt.Sprintf("Total cards: %d\n\n", summary.TotalCards))

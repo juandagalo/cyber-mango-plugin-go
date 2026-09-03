@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/db"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
-	"github.com/jmoiron/sqlx"
 )
 
 const metaKey = "last_stop_report"
@@ -22,7 +22,6 @@ func main() {
 	}
 	defer database.Close()
 
-	// Read the last reported timestamp from _meta
 	var since string
 	database.QueryRow(`SELECT value FROM _meta WHERE key = ?`, metaKey).Scan(&since)
 
@@ -31,11 +30,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Save the newest activity timestamp as the new watermark
 	newest := activities[0].CreatedAt // ordered DESC, first is newest
 	database.Exec(`INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)`, metaKey, newest)
 
-	// Count by action type
 	counts := map[string]int{}
 	for _, a := range activities {
 		counts[a.Action]++

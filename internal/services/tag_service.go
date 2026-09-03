@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// ManageTags dispatches to the appropriate tag operation.
 func ManageTags(db *sqlx.DB, action, boardID, tagID, cardID, name, color string) (interface{}, error) {
 	switch action {
 	case "create":
@@ -63,7 +62,7 @@ func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
 	return &models.Tag{ID: id, BoardID: boardID, Name: name, Color: color, CreatedAt: now}, nil
 }
 
-// FindOrCreateTag returns an existing tag by name on the board, or creates it with the default color.
+// FindOrCreateTag matches name case-insensitively and creates with the default color.
 func FindOrCreateTag(db *sqlx.DB, boardID, name string) (*models.Tag, error) {
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: tag name is required")

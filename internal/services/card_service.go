@@ -6,12 +6,11 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// CreateCard creates a new card. Resolves column by ID or name.
-// If tags is non-empty, it is a comma-separated list of tag names to auto-create and assign.
+// CreateCard auto-creates and assigns each comma-separated name in tags.
 func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, priority, tags, phaseID, phaseName string) (*models.Card, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
@@ -34,7 +33,6 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 		return nil, fmt.Errorf("VALIDATION: invalid priority %q", priority)
 	}
 
-	// Resolve phase if requested
 	var resolvedPhaseID *string
 	if phaseID != "" || phaseName != "" {
 		phase, err := ResolvePhase(db, board.ID, phaseID, phaseName)
@@ -46,7 +44,6 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 		}
 	}
 
-	// Position: max + 1
 	var maxPos float64
 	db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM cards WHERE column_id = ?`, col.ID).Scan(&maxPos)
 	position := maxPos + 1
@@ -89,16 +86,13 @@ func CreateCard(db *sqlx.DB, boardID, columnID, columnName, title, description, 
 	return card, nil
 }
 
-// UpdateCard updates card fields and optionally moves the card to a different column.
-// Only updates provided (non-zero) fields. If columnID or columnName is set, the card
-// is moved to that column in the same operation.
+// UpdateCard treats empty strings as "unchanged" and moves the card when columnID or columnName is set.
 func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phaseName string, unsetPhase bool, boardID, columnID, columnName string) (*models.Card, error) {
 	var card models.Card
 	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: card not found")
 	}
 
-	// Resolve board_id from the card's current column if not provided
 	var resolvedBoardID string
 	db.QueryRow(`SELECT c.board_id FROM columns c JOIN cards ca ON ca.column_id = c.id WHERE ca.id = ?`, cardID).Scan(&resolvedBoardID)
 	if boardID == "" {
@@ -120,7 +114,6 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 		card.Priority = priority
 	}
 
-	// Handle phase: unset, set/change, or no change
 	if unsetPhase {
 		card.PhaseID = nil
 	} else if phaseID != "" || phaseName != "" {
@@ -133,7 +126,6 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 		}
 	}
 
-	// Handle column move if requested
 	moved := false
 	if columnID != "" || columnName != "" {
 		col, err := ResolveColumn(db, boardID, columnID, columnName)
@@ -170,7 +162,7 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 	return &card, nil
 }
 
-// MoveCard moves a card to a different column or position.
+// MoveCard with no column repositions within the current column.
 func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, position *float64) (*models.Card, error) {
 	var card models.Card
 	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
@@ -182,8 +174,6 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 		return nil, fmt.Errorf("NOT_FOUND: current column not found")
 	}
 
-	// No target column means reposition within the current one. ResolveColumn
-	// would otherwise fall back to the board's first column.
 	col := &currentCol
 	if columnID != "" || columnName != "" {
 		if boardID == "" {
@@ -200,7 +190,6 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	if position != nil {
 		newPosition = *position
 	} else if col.ID != card.ColumnID {
-		// Append at bottom of new column
 		var maxPos float64
 		db.QueryRow(`SELECT COALESCE(MAX(position), 0) FROM cards WHERE column_id = ?`, col.ID).Scan(&maxPos)
 		newPosition = maxPos + 1
@@ -225,7 +214,7 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	return &card, nil
 }
 
-// DeleteCard deletes a card (cascade removes card_tags).
+// DeleteCard relies on ON DELETE CASCADE for card_tags.
 func DeleteCard(db *sqlx.DB, cardID string) error {
 	var boardID string
 	err := db.QueryRow(`SELECT c.board_id FROM columns c JOIN cards ca ON ca.column_id = c.id WHERE ca.id = ?`, cardID).Scan(&boardID)

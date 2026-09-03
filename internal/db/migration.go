@@ -8,9 +8,7 @@ import (
 
 const currentSchemaVersion = "3"
 
-// RunMigrations ensures the schema is up to date.
 func RunMigrations(db *sqlx.DB) error {
-	// Ensure meta table exists
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 		return fmt.Errorf("create _meta: %w", err)
 	}
@@ -18,7 +16,6 @@ func RunMigrations(db *sqlx.DB) error {
 	var version string
 	err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil {
-		// Table doesn't have version yet — run full schema
 		if err := createSchema(db); err != nil {
 			return err
 		}
@@ -27,7 +24,6 @@ func RunMigrations(db *sqlx.DB) error {
 		}
 	}
 
-	// Migrate v1 -> v2: add phases table + cards.phase_id
 	if version == "1" {
 		if err := migrateV1ToV2(db); err != nil {
 			return err
@@ -35,7 +31,6 @@ func RunMigrations(db *sqlx.DB) error {
 		version = "2"
 	}
 
-	// Migrate v2 -> v3: add description column to columns table
 	if version == "2" {
 		if err := migrateV2ToV3(db); err != nil {
 			return err
@@ -43,9 +38,6 @@ func RunMigrations(db *sqlx.DB) error {
 		version = "3"
 	}
 
-	// Ensure Drizzle migration journal exists so the web UI won't re-run CREATE TABLE.
-	// The web UI uses Drizzle ORM which tracks applied migrations in __drizzle_migrations.
-	// Without this, whoever touches the DB first (Go plugin vs web UI) breaks the other.
 	if err := ensureDrizzleJournal(db); err != nil {
 		return fmt.Errorf("drizzle journal: %w", err)
 	}
@@ -53,9 +45,8 @@ func RunMigrations(db *sqlx.DB) error {
 	return nil
 }
 
-// ensureDrizzleJournal creates the __drizzle_migrations table and marks the
-// initial migration as applied, so Drizzle ORM (used by the web UI) recognizes
-// that the schema already exists and skips CREATE TABLE statements.
+// ensureDrizzleJournal marks the web UI's Drizzle migrations as applied so it
+// does not re-run CREATE TABLE against a schema this plugin already created.
 func ensureDrizzleJournal(db *sqlx.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +57,6 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 		return err
 	}
 
-	// Mark initial migration as applied
 	var count int
 	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0000_wandering_sister_grimm'`).Scan(&count)
 	if count == 0 {
@@ -75,7 +65,6 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 		}
 	}
 
-	// Mark phases migration as applied (web UI's 0001_right_polaris)
 	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0001_right_polaris'`).Scan(&count)
 	if count == 0 {
 		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0001_right_polaris', 1776299103511)`); err != nil {
@@ -83,7 +72,6 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 		}
 	}
 
-	// Mark cards restructure migration as applied (web UI's 0002_old_vengeance)
 	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0002_old_vengeance'`).Scan(&count)
 	if count == 0 {
 		if _, err = db.Exec(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0002_old_vengeance', 1776799182756)`); err != nil {
@@ -95,7 +83,6 @@ func ensureDrizzleJournal(db *sqlx.DB) error {
 }
 
 func migrateV1ToV2(db *sqlx.DB) error {
-	// Create phases table (IF NOT EXISTS — safe if web UI already ran migration)
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS phases (
   id TEXT PRIMARY KEY NOT NULL,
@@ -114,7 +101,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name
 		return fmt.Errorf("migrate v1->v2 create phases: %w", err)
 	}
 
-	// Guard: SQLite has no ADD COLUMN IF NOT EXISTS — check pragma_table_info
+	// SQLite has no ADD COLUMN IF NOT EXISTS.
 	var exists int
 	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name = 'phase_id'`).Scan(&exists)
 	if exists == 0 {
@@ -130,7 +117,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phases_board_name ON phases(board_id, name
 }
 
 func migrateV2ToV3(db *sqlx.DB) error {
-	// Guard: SQLite has no ADD COLUMN IF NOT EXISTS — check pragma_table_info
+	// SQLite has no ADD COLUMN IF NOT EXISTS.
 	var exists int
 	db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('columns') WHERE name = 'description'`).Scan(&exists)
 	if exists == 0 {
@@ -143,8 +130,7 @@ func migrateV2ToV3(db *sqlx.DB) error {
 		return fmt.Errorf("migrate v2->v3 update schema version: %w", err)
 	}
 
-	// Ensure __drizzle_migrations table exists before inserting (ensureDrizzleJournal
-	// runs after all migration steps, so we may be here before it runs)
+	// May run before ensureDrizzleJournal.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS __drizzle_migrations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		hash TEXT NOT NULL,
@@ -153,7 +139,6 @@ func migrateV2ToV3(db *sqlx.DB) error {
 		return fmt.Errorf("migrate v2->v3 create drizzle table: %w", err)
 	}
 
-	// Mark the column-descriptions Drizzle migration as applied
 	var count int
 	db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations WHERE hash = '0003_overjoyed_reaper'`).Scan(&count)
 	if count == 0 {

@@ -8,7 +8,6 @@ import (
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// LogActivity inserts a record into activity_log.
 func LogActivity(db *sqlx.DB, boardID string, cardID *string, action, details, agent string) error {
 	id, err := gonanoid.New(12)
 	if err != nil {

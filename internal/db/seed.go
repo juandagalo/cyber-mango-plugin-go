@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/jmoiron/sqlx"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
 
-// SeedDefaultBoard creates the default "Cyber Mango" board if no boards exist.
+// SeedDefaultBoard is a no-op when any board exists.
 func SeedDefaultBoard(db *sqlx.DB) error {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM boards`).Scan(&count); err != nil {

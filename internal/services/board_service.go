@@ -8,14 +8,13 @@ import (
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
 )
 
-// ListBoards returns all boards.
 func ListBoards(db *sqlx.DB) ([]models.Board, error) {
 	boards := []models.Board{}
 	err := db.Select(&boards, `SELECT id, name, description, created_at, updated_at FROM boards ORDER BY created_at`)
 	return boards, err
 }
 
-// ResolveBoard returns the first board if boardID is empty, otherwise the specified board.
+// ResolveBoard falls back to the oldest board when boardID is empty.
 func ResolveBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	var board models.Board
 	var query string
@@ -34,7 +33,7 @@ func ResolveBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	return &board, nil
 }
 
-// ResolveColumn finds a column by ID or name (case-insensitive) within a board.
+// ResolveColumn matches by ID, then by case-insensitive name, then falls back to the board's first column. It never errors on empty input.
 func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.Column, error) {
 	var col models.Column
 
@@ -60,21 +59,18 @@ func ResolveColumn(db *sqlx.DB, boardID, columnID, columnName string) (*models.C
 		return nil, fmt.Errorf("NOT_FOUND: column %q not found", columnName)
 	}
 
-	// Default: first column on the board
 	if err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID); err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: no columns on board")
 	}
 	return &col, nil
 }
 
-// GetBoard returns a board with nested columns and cards (including tags).
 func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch phases for this board
 	var phases []models.Phase
 	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, fmt.Errorf("query phases: %w", err)
@@ -82,7 +78,6 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	if phases == nil {
 		phases = []models.Phase{}
 	}
-	// Build phaseMap for O(1) lookup
 	phaseMap := make(map[string]*models.Phase, len(phases))
 	for i := range phases {
 		phaseMap[phases[i].ID] = &phases[i]
@@ -110,7 +105,6 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 			}
 			cards[j].Tags = tags
 
-			// Populate phase from map
 			if cards[j].PhaseID != nil {
 				if p, ok := phaseMap[*cards[j].PhaseID]; ok {
 					cards[j].Phase = p
@@ -129,7 +123,6 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	return board, nil
 }
 
-// GetBoardSummary returns card counts per column and per priority.
 func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
@@ -141,7 +134,6 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 		return nil, err
 	}
 
-	// Fetch phases for name lookup
 	var phases []models.Phase
 	db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID)
 	phaseNameMap := make(map[string]string, len(phases))
@@ -169,7 +161,6 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 		}
 		summary.Columns = append(summary.Columns, colSummary)
 
-		// Count by priority
 		rows, _ := db.Queryx(`SELECT priority, COUNT(*) as cnt FROM cards WHERE column_id = ? GROUP BY priority`, col.ID)
 		if rows != nil {
 			for rows.Next() {
@@ -181,7 +172,6 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 			rows.Close()
 		}
 
-		// Count by phase
 		phaseRows, _ := db.Queryx(`SELECT phase_id, COUNT(*) as cnt FROM cards WHERE column_id = ? GROUP BY phase_id`, col.ID)
 		if phaseRows != nil {
 			for phaseRows.Next() {

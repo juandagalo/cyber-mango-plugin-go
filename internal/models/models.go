@@ -1,34 +1,29 @@
 package models
 
-// Board represents a kanban board.
 type Board struct {
 	ID          string  `db:"id"          json:"id"`
 	Name        string  `db:"name"        json:"name"`
 	Description *string `db:"description" json:"description"`
 	CreatedAt   string  `db:"created_at"  json:"created_at"`
 	UpdatedAt   string  `db:"updated_at"  json:"updated_at"`
-	// Populated by GetBoard only. Kept omitempty so list_boards, which does not
-	// load them, never shows an empty list that reads as "board has no columns".
+	// Loaded only by get_board; omitempty so list_boards never shows an empty list for a populated board.
 	Columns []Column `db:"-" json:"columns,omitempty"`
 	Phases  []Phase  `db:"-" json:"phases,omitempty"`
 }
 
-// Column represents a column on a board.
 type Column struct {
-	ID          string   `db:"id"          json:"id"`
-	BoardID     string   `db:"board_id"    json:"board_id"`
-	Name        string   `db:"name"        json:"name"`
-	Color       string   `db:"color"       json:"color"`
-	Description *string  `db:"description" json:"description"`
-	WipLimit    *int     `db:"wip_limit"   json:"wip_limit"`
-	Position    float64  `db:"position"    json:"position"`
-	CreatedAt   string   `db:"created_at"  json:"created_at"`
-	UpdatedAt   string   `db:"updated_at"  json:"updated_at"`
-	// Populated by GetBoard
-	Cards []Card `db:"-" json:"cards"`
+	ID          string  `db:"id"          json:"id"`
+	BoardID     string  `db:"board_id"    json:"board_id"`
+	Name        string  `db:"name"        json:"name"`
+	Color       string  `db:"color"       json:"color"`
+	Description *string `db:"description" json:"description"`
+	WipLimit    *int    `db:"wip_limit"   json:"wip_limit"`
+	Position    float64 `db:"position"    json:"position"`
+	CreatedAt   string  `db:"created_at"  json:"created_at"`
+	UpdatedAt   string  `db:"updated_at"  json:"updated_at"`
+	Cards       []Card  `db:"-" json:"cards"`
 }
 
-// Card represents a card on the board.
 type Card struct {
 	ID           string  `db:"id"             json:"id"`
 	ColumnID     string  `db:"column_id"      json:"column_id"`
@@ -41,12 +36,10 @@ type Card struct {
 	PhaseID      *string `db:"phase_id"       json:"phase_id"`
 	CreatedAt    string  `db:"created_at"     json:"created_at"`
 	UpdatedAt    string  `db:"updated_at"     json:"updated_at"`
-	// Populated by GetBoard
-	Tags  []Tag  `db:"-" json:"tags"`
-	Phase *Phase `db:"-" json:"phase,omitempty"`
+	Tags         []Tag   `db:"-" json:"tags"`
+	Phase        *Phase  `db:"-" json:"phase,omitempty"`
 }
 
-// Phase represents a workflow phase on a board.
 type Phase struct {
 	ID        string  `db:"id"         json:"id"`
 	BoardID   string  `db:"board_id"   json:"board_id"`
@@ -57,7 +50,6 @@ type Phase struct {
 	UpdatedAt string  `db:"updated_at" json:"updated_at"`
 }
 
-// Tag represents a label that can be attached to cards.
 type Tag struct {
 	ID        string `db:"id"         json:"id"`
 	BoardID   string `db:"board_id"   json:"board_id"`
@@ -66,7 +58,6 @@ type Tag struct {
 	CreatedAt string `db:"created_at" json:"created_at"`
 }
 
-// ActivityLog records actions taken on the board.
 type ActivityLog struct {
 	ID        string  `db:"id"         json:"id"`
 	BoardID   string  `db:"board_id"   json:"board_id"`
@@ -87,7 +78,6 @@ type BoardSummary struct {
 	ByPhase    map[string]int  `json:"by_phase"`
 }
 
-// ColumnSummary holds per-column card counts.
 type ColumnSummary struct {
 	ColumnID    string  `json:"column_id"`
 	ColumnName  string  `json:"column_name"`

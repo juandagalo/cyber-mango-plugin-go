@@ -10,12 +10,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Handlers holds the DB connection for all tool handlers.
 type Handlers struct {
 	db *sqlx.DB
 }
 
-// NewHandlers creates a new Handlers instance.
 func NewHandlers(db *sqlx.DB) *Handlers {
 	return &Handlers{db: db}
 }
@@ -32,7 +30,6 @@ func jsonResult(v interface{}) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(data)), nil
 }
 
-// ListBoards handles the list_boards tool.
 func (h *Handlers) ListBoards(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	boards, err := services.ListBoards(h.db)
 	if err != nil {
@@ -41,7 +38,6 @@ func (h *Handlers) ListBoards(ctx context.Context, req mcp.CallToolRequest) (*mc
 	return jsonResult(boards)
 }
 
-// GetBoard handles the get_board tool.
 func (h *Handlers) GetBoard(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	boardID := req.GetString("board_id", "")
 	board, err := services.GetBoard(h.db, boardID)
@@ -51,7 +47,6 @@ func (h *Handlers) GetBoard(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 	return jsonResult(board)
 }
 
-// GetBoardSummary handles the get_board_summary tool.
 func (h *Handlers) GetBoardSummary(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	boardID := req.GetString("board_id", "")
 	summary, err := services.GetBoardSummary(h.db, boardID)
@@ -61,7 +56,6 @@ func (h *Handlers) GetBoardSummary(ctx context.Context, req mcp.CallToolRequest)
 	return jsonResult(summary)
 }
 
-// CreateCard handles the create_card tool.
 func (h *Handlers) CreateCard(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	title := req.GetString("title", "")
 	if title == "" {
@@ -85,7 +79,6 @@ func (h *Handlers) CreateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 	return jsonResult(card)
 }
 
-// UpdateCard handles the update_card tool.
 func (h *Handlers) UpdateCard(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	cardID := req.GetString("card_id", "")
 	if cardID == "" {
@@ -118,7 +111,6 @@ func (h *Handlers) UpdateCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 	return jsonResult(card)
 }
 
-// MoveCard handles the move_card tool.
 func (h *Handlers) MoveCard(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	cardID := req.GetString("card_id", "")
 	if cardID == "" {
@@ -152,7 +144,6 @@ func (h *Handlers) MoveCard(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 	return jsonResult(card)
 }
 
-// DeleteCard handles the delete_card tool.
 func (h *Handlers) DeleteCard(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	cardID := req.GetString("card_id", "")
 	if cardID == "" {
@@ -164,7 +155,6 @@ func (h *Handlers) DeleteCard(ctx context.Context, req mcp.CallToolRequest) (*mc
 	return jsonResult(map[string]interface{}{"deleted": true, "card_id": cardID})
 }
 
-// CreateColumn handles the create_column tool.
 func (h *Handlers) CreateColumn(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := req.GetString("name", "")
 	if name == "" {
@@ -199,7 +189,6 @@ func (h *Handlers) CreateColumn(ctx context.Context, req mcp.CallToolRequest) (*
 	return jsonResult(col)
 }
 
-// ManagePhases handles the manage_phases tool.
 func (h *Handlers) ManagePhases(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	action := req.GetString("action", "")
 	if action == "" {
@@ -230,7 +219,6 @@ func (h *Handlers) ManagePhases(ctx context.Context, req mcp.CallToolRequest) (*
 	return jsonResult(result)
 }
 
-// ManageTags handles the manage_tags tool.
 func (h *Handlers) ManageTags(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	action := req.GetString("action", "")
 	if action == "" {
