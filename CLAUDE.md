@@ -147,6 +147,8 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - **Double slash in resolved path** — `source: "./"` in marketplace.json can produce `C:/path//bin/mcp-server.exe`. Harmless.
 - **Shared DB with web UI** — The plugin and the [cyber-mango web UI](https://github.com/juandagalo/cyber-mango) share the same SQLite database. Changes from either side appear instantly.
 - **Position is REAL** — Cards use `maxPos + 1`, columns use `maxPos + 1000`. Fractional positioning is supported for reordering.
+- **Migration chaining** — `RunMigrations` must update its local `version` variable after each step, otherwise a v1 DB stops at v2 in a single run. Keep this pattern when adding v4+.
+- **Drizzle journal formats coexist** — The web UI writes SHA-256 content hashes into `__drizzle_migrations`; the Go plugin writes tag names (`0001_right_polaris`, `0002_old_vengeance`, `0003_overjoyed_reaper`). Each side checks its own format, so both rows can live in the same table. When the web UI adds a migration, add the matching tag here.
 
 ## Conventions
 
@@ -158,6 +160,35 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - Error handling: hooks exit silently on error (exit 0), MCP server exits with error (exit 1)
 - JSON responses: all slice fields initialized to empty `[]` (never nil) to avoid `null` in JSON
 - Column descriptions are used by agents to understand workflow dynamically — agents call `get_board` and read each column's `description` field instead of relying on hardcoded column names
+
+## Status and Pending Work
+
+Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0).
+
+Known pending items:
+
+- `update_column` tool does not exist. Columns created before schema v3 have `NULL` description and there is no way to fill them from an agent. A card for this exists in the board's Backlog.
+- End-to-end checks not yet recorded: hooks output verified from a directory outside the plugin repo, and shared-DB round trip against the web UI.
+
+### Hardening pass (started 2026-09-03)
+
+Audit findings being fixed with TDD, in this order. Mark each `[x]` when its test is green and the change is committed.
+
+- [ ] H1 Pragmas per connection: apply via DSN `_pragma=` and `SetMaxOpenConns(1)` (`internal/db/connection.go`)
+- [ ] H2 `move_card` with only `position` must keep the current column (`internal/services/card_service.go`)
+- [ ] H3 Drop `omitempty` on Columns/Phases/Cards/Tags; `ListBoards` returns `[]` not `null` (`internal/models/models.go`, `board_service.go`)
+- [ ] H4 Transactions around create card + tags, reorder phases, seed, migration
+- [ ] H5 Tag writes log activity; `LogActivity` errors propagate
+- [ ] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause
+- [ ] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs)
+- [ ] H8 `session-stop` watermark: RFC3339Nano timestamps or `>=` plus dedupe
+- [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once
+- [ ] H10 `GetBoardSummary` single GROUP BY query
+- [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
+- [ ] H12 Deduplicate column SELECT, priority/color validation, first-board resolution
+- [ ] H13 `session-start` phase list sorted by position, not map order
+
+Update this section when a feature ships or a pending item closes.
 
 ## Install as Plugin
 
