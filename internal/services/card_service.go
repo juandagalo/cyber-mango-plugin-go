@@ -1,6 +1,8 @@
 package services
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -104,11 +106,23 @@ func createCardTx(tx *sqlx.Tx, boardID, columnID, columnName, title, description
 	return card, nil
 }
 
+func getCard(q Querier, cardID string) (*models.Card, error) {
+	var card models.Card
+	err := q.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("NOT_FOUND: card not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+	return &card, nil
+}
+
 // UpdateCard treats empty strings as "unchanged" and moves the card when columnID or columnName is set.
 func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phaseName string, unsetPhase bool, boardID, columnID, columnName string) (*models.Card, error) {
-	var card models.Card
-	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
-		return nil, fmt.Errorf("NOT_FOUND: card not found")
+	card, err := getCard(db, cardID)
+	if err != nil {
+		return nil, err
 	}
 
 	var resolvedBoardID string
@@ -161,7 +175,7 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 
 	card.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	_, err := db.Exec(
+	_, err = db.Exec(
 		`UPDATE cards SET title = ?, description = ?, priority = ?, phase_id = ?, column_id = ?, position = ?, updated_at = ? WHERE id = ?`,
 		card.Title, card.Description, card.Priority, card.PhaseID, card.ColumnID, card.Position, card.UpdatedAt, card.ID,
 	)
@@ -181,19 +195,23 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 	}
 
 	card.Tags = []models.Tag{}
-	return &card, nil
+	return card, nil
 }
 
 // MoveCard with no column repositions within the current column.
 func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, position *float64) (*models.Card, error) {
-	var card models.Card
-	if err := db.Get(&card, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE id = ?`, cardID); err != nil {
-		return nil, fmt.Errorf("NOT_FOUND: card not found")
+	card, err := getCard(db, cardID)
+	if err != nil {
+		return nil, err
 	}
 
 	var currentCol models.Column
-	if err := db.Get(&currentCol, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, card.ColumnID); err != nil {
+	err = db.Get(&currentCol, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, card.ColumnID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("NOT_FOUND: current column not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get current column: %w", err)
 	}
 
 	col := &currentCol
@@ -218,7 +236,7 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.Exec(
+	_, err = db.Exec(
 		`UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?`,
 		col.ID, newPosition, now, cardID,
 	)
@@ -235,15 +253,18 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 	}
 
 	card.Tags = []models.Tag{}
-	return &card, nil
+	return card, nil
 }
 
 // DeleteCard relies on ON DELETE CASCADE for card_tags.
 func DeleteCard(db *sqlx.DB, cardID string) error {
 	var boardID string
 	err := db.QueryRow(`SELECT c.board_id FROM columns c JOIN cards ca ON ca.column_id = c.id WHERE ca.id = ?`, cardID).Scan(&boardID)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("NOT_FOUND: card not found")
+	}
+	if err != nil {
+		return fmt.Errorf("get card: %w", err)
 	}
 
 	if _, err := db.Exec(`DELETE FROM cards WHERE id = ?`, cardID); err != nil {

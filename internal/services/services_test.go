@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1129,5 +1130,205 @@ func TestLogActivityErrorPropagates(t *testing.T) {
 				t.Errorf("error should name the activity log failure, got %v", err)
 			}
 		})
+	}
+}
+
+// --- H6: only sql.ErrNoRows maps to NOT_FOUND ---
+
+func breakTable(t *testing.T, testDB *sqlx.DB, table string) {
+	t.Helper()
+	if _, err := testDB.Exec(fmt.Sprintf(`ALTER TABLE %s RENAME TO %s_gone`, table, table)); err != nil {
+		t.Fatalf("rename %s: %v", table, err)
+	}
+}
+
+// failingGet delegates everything to the wrapped Querier except Get, which
+// always fails with err. It simulates a lookup failure while writes still work.
+type failingGet struct {
+	Querier
+	err error
+}
+
+func (f failingGet) Get(dest interface{}, query string, args ...interface{}) error {
+	return f.err
+}
+
+func TestNotFound_MissingRowStillMapsToNotFound(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, testDB *sqlx.DB) error
+	}{
+		{"ResolveBoard", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveBoard(testDB, "missing")
+			return err
+		}},
+		{"ResolveColumn by id", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveColumn(testDB, "", "missing", "")
+			return err
+		}},
+		{"ResolveColumn by name", func(t *testing.T, testDB *sqlx.DB) error {
+			board, _ := ResolveBoard(testDB, "")
+			_, err := ResolveColumn(testDB, board.ID, "", "Nope")
+			return err
+		}},
+		{"ResolveColumn first on empty board", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveColumn(testDB, "missing-board", "", "")
+			return err
+		}},
+		{"ResolvePhase by id", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolvePhase(testDB, "", "missing", "")
+			return err
+		}},
+		{"ResolvePhase by name", func(t *testing.T, testDB *sqlx.DB) error {
+			board, _ := ResolveBoard(testDB, "")
+			_, err := ResolvePhase(testDB, board.ID, "", "Nope")
+			return err
+		}},
+		{"UpdateCard", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := UpdateCard(testDB, "missing", "T", "", "", "", "", false, "", "", "")
+			return err
+		}},
+		{"MoveCard", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := MoveCard(testDB, "missing", "", "", "", nil)
+			return err
+		}},
+		{"DeleteCard", func(t *testing.T, testDB *sqlx.DB) error {
+			return DeleteCard(testDB, "missing")
+		}},
+		{"createPhase on missing board", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "create", "missing-board", "", "Testing", "", nil)
+			return err
+		}},
+		{"updatePhase", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "update", "", "missing", "Dev", "", nil)
+			return err
+		}},
+		{"deletePhase", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "delete", "", "missing", "", "", nil)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.run(t, newTestDB(t))
+			if err == nil || !strings.HasPrefix(err.Error(), "NOT_FOUND:") {
+				t.Errorf("want NOT_FOUND error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestNotFound_DBErrorKeepsItsCause(t *testing.T) {
+	cases := []struct {
+		name  string
+		table string
+		run   func(t *testing.T, testDB *sqlx.DB) error
+	}{
+		{"ResolveBoard by id", "boards", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveBoard(testDB, "any")
+			return err
+		}},
+		{"ResolveBoard default", "boards", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveBoard(testDB, "")
+			return err
+		}},
+		{"ResolveColumn by id", "columns", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveColumn(testDB, "", "any", "")
+			return err
+		}},
+		{"ResolveColumn by name", "columns", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveColumn(testDB, "any", "", "Backlog")
+			return err
+		}},
+		{"ResolveColumn first", "columns", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolveColumn(testDB, "any", "", "")
+			return err
+		}},
+		{"ResolvePhase by id", "phases", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolvePhase(testDB, "", "any", "")
+			return err
+		}},
+		{"ResolvePhase by name", "phases", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ResolvePhase(testDB, "any", "", "Development")
+			return err
+		}},
+		{"UpdateCard", "cards", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := UpdateCard(testDB, "any", "T", "", "", "", "", false, "", "", "")
+			return err
+		}},
+		{"MoveCard card lookup", "cards", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := MoveCard(testDB, "any", "", "", "", nil)
+			return err
+		}},
+		{"MoveCard current column lookup", "", func(t *testing.T, testDB *sqlx.DB) error {
+			card, err := CreateCard(testDB, "", "", "", "Card", "", "", "", "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			breakTable(t, testDB, "columns")
+			_, err = MoveCard(testDB, card.ID, "", "", "", nil)
+			return err
+		}},
+		{"DeleteCard", "cards", func(t *testing.T, testDB *sqlx.DB) error {
+			return DeleteCard(testDB, "any")
+		}},
+		{"createPhase board check", "boards", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "create", "any", "", "Testing", "", nil)
+			return err
+		}},
+		{"updatePhase", "phases", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "update", "", "any", "Dev", "", nil)
+			return err
+		}},
+		{"deletePhase", "phases", func(t *testing.T, testDB *sqlx.DB) error {
+			_, err := ManagePhases(testDB, "delete", "", "any", "", "", nil)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testDB := newTestDB(t)
+			if tc.table != "" {
+				breakTable(t, testDB, tc.table)
+			}
+			err := tc.run(t, testDB)
+			if err == nil {
+				t.Fatal("expected a DB error")
+			}
+			if strings.HasPrefix(err.Error(), "NOT_FOUND:") {
+				t.Errorf("DB error must not be reported as NOT_FOUND, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "no such table") {
+				t.Errorf("error should keep the SQLite cause, got %v", err)
+			}
+		})
+	}
+}
+
+func TestFindOrCreateTag_LookupErrorDoesNotCreate(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+	locked := fmt.Errorf("database is locked")
+
+	tx := testDB.MustBegin()
+	defer tx.Rollback()
+
+	_, err := FindOrCreateTag(failingGet{Querier: tx, err: locked}, board.ID, "bug")
+	if err == nil {
+		t.Fatal("expected the lookup error to propagate")
+	}
+	if strings.HasPrefix(err.Error(), "NOT_FOUND:") {
+		t.Errorf("lookup error must not be reported as NOT_FOUND, got %v", err)
+	}
+	if !errors.Is(err, locked) {
+		t.Errorf("error should wrap the lookup cause, got %v", err)
+	}
+
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM tags WHERE board_id = ? AND name = 'bug'`, board.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("lookup failure must not fall through to an insert, got %d tag rows", count)
 	}
 }

@@ -102,6 +102,9 @@ func FindOrCreateTag(q Querier, boardID, name string) (*models.Tag, error) {
 	if err == nil {
 		return &existing, nil
 	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("find tag: %w", err)
+	}
 
 	return createTagTx(q, boardID, name, "#3b82f6")
 }

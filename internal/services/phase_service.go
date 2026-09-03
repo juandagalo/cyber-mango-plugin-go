@@ -1,7 +1,9 @@
 package services
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,17 +20,29 @@ func ResolvePhase(db Querier, boardID, phaseID, phaseName string) (*models.Phase
 		return nil, nil
 	}
 
-	var phase models.Phase
-
 	if phaseID != "" {
-		if err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE id = ?`, phaseID); err != nil {
-			return nil, fmt.Errorf("NOT_FOUND: phase not found")
-		}
-		return &phase, nil
+		return getPhase(db, phaseID)
 	}
 
-	if err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, phaseName); err != nil {
+	var phase models.Phase
+	err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, phaseName)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("NOT_FOUND: phase %q not found", phaseName)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get phase: %w", err)
+	}
+	return &phase, nil
+}
+
+func getPhase(q Querier, phaseID string) (*models.Phase, error) {
+	var phase models.Phase
+	err := q.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE id = ?`, phaseID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("NOT_FOUND: phase not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get phase: %w", err)
 	}
 	return &phase, nil
 }
@@ -118,7 +132,10 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 	}
 
 	var boardExists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM boards WHERE id = ?`, boardID).Scan(&boardExists); err != nil || boardExists == 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM boards WHERE id = ?`, boardID).Scan(&boardExists); err != nil {
+		return nil, fmt.Errorf("check board: %w", err)
+	}
+	if boardExists == 0 {
 		return nil, fmt.Errorf("NOT_FOUND: board not found")
 	}
 
@@ -155,9 +172,9 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("VALIDATION: phase_id is required")
 	}
 
-	var phase models.Phase
-	if err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE id = ?`, phaseID); err != nil {
-		return nil, fmt.Errorf("NOT_FOUND: phase not found")
+	phase, err := getPhase(db, phaseID)
+	if err != nil {
+		return nil, err
 	}
 
 	if name != "" {
@@ -181,7 +198,7 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 
 	phase.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	_, err := db.Exec(
+	_, err = db.Exec(
 		`UPDATE phases SET name = ?, color = ?, updated_at = ? WHERE id = ?`,
 		phase.Name, phase.Color, phase.UpdatedAt, phase.ID,
 	)
@@ -193,7 +210,7 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("log activity: %w", err)
 	}
 
-	return &phase, nil
+	return phase, nil
 }
 
 func deletePhase(db *sqlx.DB, phaseID string) (map[string]interface{}, error) {
@@ -201,9 +218,9 @@ func deletePhase(db *sqlx.DB, phaseID string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("VALIDATION: phase_id is required")
 	}
 
-	var phase models.Phase
-	if err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE id = ?`, phaseID); err != nil {
-		return nil, fmt.Errorf("NOT_FOUND: phase not found")
+	phase, err := getPhase(db, phaseID)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, err := db.Exec(`DELETE FROM phases WHERE id = ?`, phaseID); err != nil {

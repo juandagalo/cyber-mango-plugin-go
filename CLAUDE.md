@@ -130,11 +130,11 @@ Column resolution: by `column_id` first, then `column_name` (case-insensitive), 
 
 Board resolution: if `board_id` is empty, uses the first board by `created_at`.
 
-Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mcp.NewToolResultError`.
+Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mcp.NewToolResultError`. `NOT_FOUND:` is produced only from `sql.ErrNoRows`; any other DB error is wrapped with `%w` so its SQLite cause survives.
 
 ## Testing
 
-- 76 tests total: 14 in `internal/db`, 59 in `internal/services`, 3 in `internal/sqltx`
+- 79 tests total: 14 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -182,7 +182,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H3 Drop `omitempty` on `Column.Cards` and `Card.Tags`; `ListBoards` returns `[]` not `null`. `Board.Columns`/`Phases` keep `omitempty` on purpose: only `get_board` loads them
 - [x] H4 Transactions around create card + tags, reorder phases, seed, migration (`internal/sqltx`, `services.Querier`)
 - [x] H5 Tag writes log activity (`tag_created/assigned/removed/deleted`, each inside `sqltx.Run`); `LogActivity` errors propagate everywhere
-- [ ] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause
+- [x] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause (`getCard`, `getPhase`, `getTag` helpers)
 - [ ] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs)
 - [ ] H8 `session-stop` watermark per session, not global: read `session_id` from the hook stdin JSON, store one watermark per session, and compare with `>=` plus dedupe by ID (or RFC3339Nano timestamps) so same-second activity is not dropped. Concurrent sessions on the shared DB must not steal each other's summaries
 - [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once

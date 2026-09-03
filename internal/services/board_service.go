@@ -1,6 +1,8 @@
 package services
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,8 +29,12 @@ func ResolveBoard(db Querier, boardID string) (*models.Board, error) {
 		args = []interface{}{boardID}
 	}
 
-	if err := db.Get(&board, query, args...); err != nil {
+	err := db.Get(&board, query, args...)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("NOT_FOUND: board not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get board: %w", err)
 	}
 	return &board, nil
 }
@@ -38,8 +44,12 @@ func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Co
 	var col models.Column
 
 	if columnID != "" {
-		if err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, columnID); err != nil {
+		err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, columnID)
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("NOT_FOUND: column not found")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get column: %w", err)
 		}
 		return &col, nil
 	}
@@ -47,7 +57,7 @@ func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Co
 	if columnName != "" {
 		cols := []models.Column{}
 		if err := db.Select(&cols, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, boardID); err != nil {
-			return nil, fmt.Errorf("NOT_FOUND: columns not found")
+			return nil, fmt.Errorf("query columns: %w", err)
 		}
 		lower := strings.ToLower(columnName)
 		for _, c := range cols {
@@ -59,8 +69,12 @@ func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Co
 		return nil, fmt.Errorf("NOT_FOUND: column %q not found", columnName)
 	}
 
-	if err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID); err != nil {
+	err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("NOT_FOUND: no columns on board")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get column: %w", err)
 	}
 	return &col, nil
 }
