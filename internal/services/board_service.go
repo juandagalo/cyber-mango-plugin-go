@@ -154,72 +154,73 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	return board, nil
 }
 
+// cardCountRow is one bucket of the card aggregate: phase_id is NULL for unassigned cards.
+type cardCountRow struct {
+	ColumnID string  `db:"column_id"`
+	Priority string  `db:"priority"`
+	PhaseID  *string `db:"phase_id"`
+	Count    int     `db:"cnt"`
+}
+
+// GetBoardSummary runs a fixed number of queries (board, columns, phases, one
+// card aggregate) regardless of board size and folds the aggregate in memory.
 func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
 	}
 
-	var columns []models.Column
+	columns := []models.Column{}
 	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query columns: %w", err)
 	}
 
-	var phases []models.Phase
-	db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID)
-	phaseNameMap := make(map[string]string, len(phases))
+	phases := []models.Phase{}
+	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
+		return nil, fmt.Errorf("query phases: %w", err)
+	}
+	phaseNames := make(map[string]string, len(phases))
 	for _, p := range phases {
-		phaseNameMap[p.ID] = p.Name
+		phaseNames[p.ID] = p.Name
+	}
+
+	counts := []cardCountRow{}
+	if err := db.Select(&counts, `SELECT c.column_id, c.priority, c.phase_id, COUNT(*) AS cnt
+		FROM cards c JOIN columns col ON col.id = c.column_id
+		WHERE col.board_id = ?
+		GROUP BY c.column_id, c.priority, c.phase_id`, board.ID); err != nil {
+		return nil, fmt.Errorf("query card counts: %w", err)
 	}
 
 	summary := &models.BoardSummary{
 		BoardID:    board.ID,
 		BoardName:  board.Name,
+		Columns:    make([]models.ColumnSummary, 0, len(columns)),
 		ByPriority: map[string]int{"low": 0, "medium": 0, "high": 0, "critical": 0},
 		ByPhase:    map[string]int{},
 	}
 
+	countByColumn := make(map[string]int, len(columns))
+	for _, row := range counts {
+		summary.TotalCards += row.Count
+		countByColumn[row.ColumnID] += row.Count
+		summary.ByPriority[row.Priority] += row.Count
+		if row.PhaseID == nil {
+			summary.ByPhase["unassigned"] += row.Count
+		} else if name, ok := phaseNames[*row.PhaseID]; ok {
+			// ON DELETE SET NULL makes a dangling phase_id impossible; skip rather than invent a key.
+			summary.ByPhase[name] += row.Count
+		}
+	}
+
 	for _, col := range columns {
-		var count int
-		db.QueryRow(`SELECT COUNT(*) FROM cards WHERE column_id = ?`, col.ID).Scan(&count)
-		summary.TotalCards += count
-		colSummary := models.ColumnSummary{
+		summary.Columns = append(summary.Columns, models.ColumnSummary{
 			ColumnID:    col.ID,
 			ColumnName:  col.Name,
 			Description: col.Description,
-			CardCount:   count,
+			CardCount:   countByColumn[col.ID],
 			WipLimit:    col.WipLimit,
-		}
-		summary.Columns = append(summary.Columns, colSummary)
-
-		rows, _ := db.Queryx(`SELECT priority, COUNT(*) as cnt FROM cards WHERE column_id = ? GROUP BY priority`, col.ID)
-		if rows != nil {
-			for rows.Next() {
-				var priority string
-				var cnt int
-				rows.Scan(&priority, &cnt)
-				summary.ByPriority[priority] += cnt
-			}
-			rows.Close()
-		}
-
-		phaseRows, _ := db.Queryx(`SELECT phase_id, COUNT(*) as cnt FROM cards WHERE column_id = ? GROUP BY phase_id`, col.ID)
-		if phaseRows != nil {
-			for phaseRows.Next() {
-				var phaseID *string
-				var cnt int
-				phaseRows.Scan(&phaseID, &cnt)
-				if phaseID == nil {
-					summary.ByPhase["unassigned"] += cnt
-				} else if name, ok := phaseNameMap[*phaseID]; ok {
-					summary.ByPhase[name] += cnt
-				}
-			}
-			phaseRows.Close()
-		}
-	}
-	if summary.Columns == nil {
-		summary.Columns = []models.ColumnSummary{}
+		})
 	}
 
 	return summary, nil

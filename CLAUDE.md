@@ -135,7 +135,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 97 tests total: 16 in `internal/db`, 65 in `internal/services`, 3 in `internal/sqltx`, 13 in `internal/hooks`
+- 100 tests total: 16 in `internal/db`, 68 in `internal/services`, 3 in `internal/sqltx`, 13 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -189,7 +189,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs); guards extracted into `ensureX` helpers
 - [x] H8 `session-stop` watermark per session (`internal/hooks`): `session_id` from stdin, `stop_report:<id>` key, `datetime(created_at) >= datetime(?)` plus `seen_ids` dedupe, 30-min fallback, 7-day prune
 - [x] H9 `GetBoard` runs 5 fixed queries (board, phases, columns, cards, card tags) and assembles in memory; tags on a card ordered by name. `StartReport` calls `GetBoard` once and derives every count from the tree
-- [ ] H10 `GetBoardSummary` single GROUP BY query
+- [x] H10 `GetBoardSummary` runs 4 fixed queries (board, columns, phases, one `GROUP BY column_id, priority, phase_id` aggregate) and folds in memory; query errors propagate
 - [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
 - [ ] H12 Deduplicate column SELECT, priority/color validation, first-board resolution
 - [x] H13 `session-start` phase list sorted by position, not map order (closed by H9's `StartReport` rewrite)

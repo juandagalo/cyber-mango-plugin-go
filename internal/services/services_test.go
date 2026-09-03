@@ -1497,3 +1497,120 @@ func TestGetBoard_IsolatesBoards(t *testing.T) {
 	check("", "A-card")
 	check("board-b", "B-card")
 }
+
+func TestGetBoardSummary_FoldsCountsAcrossColumnsPrioritiesAndPhases(t *testing.T) {
+	testDB := newTestDB(t)
+	wip := 2
+	if _, err := CreateColumn(testDB, "", "Blocked", "", "Waiting on others", &wip); err != nil {
+		t.Fatalf("create column: %v", err)
+	}
+	add := func(column, title, priority, phase string) {
+		t.Helper()
+		if _, err := CreateCard(testDB, "", "", column, title, "", priority, "", "", phase); err != nil {
+			t.Fatalf("create card %q: %v", title, err)
+		}
+	}
+	add("Backlog", "B1", "critical", "Development")
+	add("Backlog", "B2", "low", "")
+	add("To Do", "T1", "high", "QA")
+	add("In Progress", "I1", "medium", "Development")
+	add("In Progress", "I2", "medium", "")
+	add("In Progress", "I3", "critical", "QA")
+	add("Done", "D1", "low", "Code Review")
+	add("Blocked", "X1", "high", "")
+
+	summary, err := GetBoardSummary(testDB, "")
+	if err != nil {
+		t.Fatalf("GetBoardSummary: %v", err)
+	}
+	if summary.TotalCards != 8 {
+		t.Errorf("TotalCards = %d, want 8", summary.TotalCards)
+	}
+
+	wantColumns := []struct {
+		name  string
+		count int
+	}{
+		{"Backlog", 2}, {"To Do", 1}, {"In Progress", 3}, {"Review", 0}, {"Done", 1}, {"Blocked", 1},
+	}
+	if len(summary.Columns) != len(wantColumns) {
+		t.Fatalf("Columns = %+v, want %d entries", summary.Columns, len(wantColumns))
+	}
+	for i, want := range wantColumns {
+		got := summary.Columns[i]
+		if got.ColumnName != want.name || got.CardCount != want.count {
+			t.Errorf("Columns[%d] = %s/%d, want %s/%d", i, got.ColumnName, got.CardCount, want.name, want.count)
+		}
+		if got.ColumnID == "" {
+			t.Errorf("Columns[%d] %s: empty ColumnID", i, want.name)
+		}
+		if got.Description == nil || *got.Description == "" {
+			t.Errorf("Columns[%d] %s: want seeded description, got %v", i, want.name, got.Description)
+		}
+		if want.name == "Blocked" {
+			if got.WipLimit == nil || *got.WipLimit != 2 {
+				t.Errorf("Blocked WipLimit = %v, want 2", got.WipLimit)
+			}
+			if *got.Description != "Waiting on others" {
+				t.Errorf("Blocked Description = %q, want %q", *got.Description, "Waiting on others")
+			}
+		} else if got.WipLimit != nil {
+			t.Errorf("Columns[%d] %s: WipLimit = %d, want nil", i, want.name, *got.WipLimit)
+		}
+	}
+
+	wantPriority := map[string]int{"low": 2, "medium": 2, "high": 2, "critical": 2}
+	if fmt.Sprint(summary.ByPriority) != fmt.Sprint(wantPriority) {
+		t.Errorf("ByPriority = %v, want %v", summary.ByPriority, wantPriority)
+	}
+	wantPhase := map[string]int{"Development": 2, "QA": 2, "Code Review": 1, "unassigned": 3}
+	if fmt.Sprint(summary.ByPhase) != fmt.Sprint(wantPhase) {
+		t.Errorf("ByPhase = %v, want %v", summary.ByPhase, wantPhase)
+	}
+}
+
+func TestGetBoardSummary_IsolatesBoards(t *testing.T) {
+	testDB := newTestDB(t)
+	insertBoard(t, testDB, "board-b", "Board B")
+	if _, err := CreateColumn(testDB, "board-b", "Inbox", "", "", nil); err != nil {
+		t.Fatalf("create column: %v", err)
+	}
+	mustCreateCard(t, testDB, "", "Backlog", "A-1", "", "Development")
+	mustCreateCard(t, testDB, "", "To Do", "A-2", "", "")
+	mustCreateCard(t, testDB, "board-b", "Inbox", "B-1", "", "")
+	mustCreateCard(t, testDB, "board-b", "Inbox", "B-2", "", "")
+	mustCreateCard(t, testDB, "board-b", "Inbox", "B-3", "", "")
+
+	a, err := GetBoardSummary(testDB, "")
+	if err != nil {
+		t.Fatalf("GetBoardSummary(A): %v", err)
+	}
+	if a.TotalCards != 2 || a.ByPriority["medium"] != 2 || a.ByPhase["Development"] != 1 || a.ByPhase["unassigned"] != 1 {
+		t.Errorf("board A summary counts B's cards: %+v", a)
+	}
+
+	b, err := GetBoardSummary(testDB, "board-b")
+	if err != nil {
+		t.Fatalf("GetBoardSummary(B): %v", err)
+	}
+	if b.TotalCards != 3 || len(b.Columns) != 1 || b.Columns[0].CardCount != 3 {
+		t.Errorf("board B summary counts A's cards: %+v", b)
+	}
+	if fmt.Sprint(b.ByPhase) != fmt.Sprint(map[string]int{"unassigned": 3}) {
+		t.Errorf("board B ByPhase = %v, want only 3 unassigned", b.ByPhase)
+	}
+}
+
+func TestGetBoardSummary_CardQueryErrorPropagates(t *testing.T) {
+	testDB := newTestDB(t)
+	mustCreateCard(t, testDB, "", "Backlog", "Vanishes", "", "")
+	breakTable(t, testDB, "cards")
+
+	summary, err := GetBoardSummary(testDB, "")
+	if err == nil {
+		t.Fatalf("want error after cards table is gone, got nil with summary %+v", summary)
+	}
+	if !strings.Contains(err.Error(), "no such table") {
+		t.Errorf("error = %q, want it to keep the cause (no such table)", err)
+	}
+}
