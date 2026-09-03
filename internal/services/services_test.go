@@ -1332,3 +1332,168 @@ func TestFindOrCreateTag_LookupErrorDoesNotCreate(t *testing.T) {
 		t.Errorf("lookup failure must not fall through to an insert, got %d tag rows", count)
 	}
 }
+
+// --- H9 batched GetBoard tests ---
+
+func insertBoard(t *testing.T, testDB *sqlx.DB, id, name string) {
+	t.Helper()
+	// Later created_at than the seed board so the empty-board_id fallback stays on the seed.
+	if _, err := testDB.Exec(`INSERT INTO boards (id, name, created_at, updated_at) VALUES (?, ?, '2999-01-01 00:00:00', '2999-01-01 00:00:00')`, id, name); err != nil {
+		t.Fatalf("insert board %s: %v", id, err)
+	}
+}
+
+func mustCreateCard(t *testing.T, testDB *sqlx.DB, boardID, columnName, title, tags, phaseName string) *models.Card {
+	t.Helper()
+	card, err := CreateCard(testDB, boardID, "", columnName, title, "", "", tags, "", phaseName)
+	if err != nil {
+		t.Fatalf("create card %q: %v", title, err)
+	}
+	return card
+}
+
+func cardTitles(cards []models.Card) []string {
+	titles := []string{}
+	for _, c := range cards {
+		titles = append(titles, c.Title)
+	}
+	return titles
+}
+
+func tagNames(tags []models.Tag) []string {
+	names := []string{}
+	for _, tg := range tags {
+		names = append(names, tg.Name)
+	}
+	return names
+}
+
+func TestGetBoard_AssemblesCardsTagsAndPhasesAcrossColumns(t *testing.T) {
+	testDB := newTestDB(t)
+	mustCreateCard(t, testDB, "", "Backlog", "A", "zeta,alpha", "")
+	mustCreateCard(t, testDB, "", "Backlog", "B", "", "")
+	mustCreateCard(t, testDB, "", "Backlog", "C", "", "")
+	mustCreateCard(t, testDB, "", "To Do", "D", "alpha", "")
+	e := mustCreateCard(t, testDB, "", "In Progress", "E", "", "QA")
+	mustCreateCard(t, testDB, "", "In Progress", "F", "", "")
+
+	board, err := GetBoard(testDB, "")
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(board.Phases) != 5 {
+		t.Errorf("want 5 phases, got %d", len(board.Phases))
+	}
+
+	wantColumns := []string{"Backlog", "To Do", "In Progress", "Review", "Done"}
+	wantCards := map[string][]string{
+		"Backlog":     {"A", "B", "C"},
+		"To Do":       {"D"},
+		"In Progress": {"E", "F"},
+		"Review":      {},
+		"Done":        {},
+	}
+	wantTags := map[string][]string{"A": {"alpha", "zeta"}, "D": {"alpha"}}
+
+	if len(board.Columns) != len(wantColumns) {
+		t.Fatalf("want %d columns, got %d", len(wantColumns), len(board.Columns))
+	}
+	for i, col := range board.Columns {
+		if col.Name != wantColumns[i] {
+			t.Errorf("column %d: want %q, got %q", i, wantColumns[i], col.Name)
+		}
+		if col.Cards == nil {
+			t.Errorf("column %q: Cards must be non-nil", col.Name)
+		}
+		if got := cardTitles(col.Cards); fmt.Sprint(got) != fmt.Sprint(wantCards[col.Name]) {
+			t.Errorf("column %q: want cards %v, got %v", col.Name, wantCards[col.Name], got)
+		}
+		for _, card := range col.Cards {
+			if card.ColumnID != col.ID {
+				t.Errorf("card %q: column_id %s does not match column %s", card.Title, card.ColumnID, col.ID)
+			}
+			if card.Tags == nil {
+				t.Errorf("card %q: Tags must be non-nil", card.Title)
+			}
+			want := wantTags[card.Title]
+			if want == nil {
+				want = []string{}
+			}
+			if got := tagNames(card.Tags); fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Errorf("card %q: want tags %v (sorted by name), got %v", card.Title, want, got)
+			}
+			for _, tg := range card.Tags {
+				if tg.BoardID != board.ID {
+					t.Errorf("card %q: tag %q belongs to board %s, want %s", card.Title, tg.Name, tg.BoardID, board.ID)
+				}
+			}
+			if card.Title == "E" {
+				if card.Phase == nil || card.Phase.Name != "QA" || card.PhaseID == nil || *card.PhaseID != *e.PhaseID {
+					t.Errorf("card E: want phase QA (%v), got %+v", *e.PhaseID, card.Phase)
+				}
+			} else if card.Phase != nil || card.PhaseID != nil {
+				t.Errorf("card %q: want no phase, got %+v", card.Title, card.Phase)
+			}
+		}
+	}
+}
+
+func TestGetBoard_EmptyColumnsHaveEmptyCardSlices(t *testing.T) {
+	testDB := newTestDB(t)
+	insertBoard(t, testDB, "board-empty", "Empty")
+	for _, name := range []string{"Inbox", "Outbox"} {
+		if _, err := CreateColumn(testDB, "board-empty", name, "", "", nil); err != nil {
+			t.Fatalf("create column %s: %v", name, err)
+		}
+	}
+
+	board, err := GetBoard(testDB, "board-empty")
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	if len(board.Columns) != 2 {
+		t.Fatalf("want 2 columns, got %d", len(board.Columns))
+	}
+	if board.Phases == nil {
+		t.Error("Phases must be non-nil on a board without phases")
+	}
+	for _, col := range board.Columns {
+		if col.Cards == nil || len(col.Cards) != 0 {
+			t.Errorf("column %q: want empty non-nil Cards, got %#v", col.Name, col.Cards)
+		}
+	}
+	out, _ := json.Marshal(board)
+	if got := strings.Count(string(out), `"cards":[]`); got != 2 {
+		t.Errorf("want 2 columns with \"cards\":[], got %d in: %s", got, out)
+	}
+}
+
+func TestGetBoard_IsolatesBoards(t *testing.T) {
+	testDB := newTestDB(t)
+	insertBoard(t, testDB, "board-b", "Board B")
+	if _, err := CreateColumn(testDB, "board-b", "Inbox", "", "", nil); err != nil {
+		t.Fatalf("create column: %v", err)
+	}
+	mustCreateCard(t, testDB, "", "Backlog", "A-card", "shared", "")
+	mustCreateCard(t, testDB, "board-b", "Inbox", "B-card", "shared", "")
+
+	check := func(boardID, wantTitle string) {
+		t.Helper()
+		board, err := GetBoard(testDB, boardID)
+		if err != nil {
+			t.Fatalf("GetBoard(%q): %v", boardID, err)
+		}
+		var cards []models.Card
+		for _, col := range board.Columns {
+			cards = append(cards, col.Cards...)
+		}
+		if len(cards) != 1 || cards[0].Title != wantTitle {
+			t.Fatalf("board %s: want only card %q, got %v", board.ID, wantTitle, cardTitles(cards))
+		}
+		if len(cards[0].Tags) != 1 || cards[0].Tags[0].BoardID != board.ID {
+			t.Errorf("board %s: want exactly one tag owned by the board, got %+v", board.ID, cards[0].Tags)
+		}
+	}
+	check("", "A-card")
+	check("board-b", "B-card")
+}

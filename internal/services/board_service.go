@@ -79,18 +79,25 @@ func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Co
 	return &col, nil
 }
 
+// cardTagRow carries the owning card_id next to the tag so one query can load
+// every tag assignment on a board.
+type cardTagRow struct {
+	CardID string `db:"card_id"`
+	models.Tag
+}
+
+// GetBoard runs a fixed number of queries (board, phases, columns, cards, tags)
+// regardless of board size and assembles the tree in memory. Columns and cards
+// are ordered by position; tags on a card are ordered by name.
 func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	board, err := ResolveBoard(db, boardID)
 	if err != nil {
 		return nil, err
 	}
 
-	var phases []models.Phase
+	phases := []models.Phase{}
 	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, fmt.Errorf("query phases: %w", err)
-	}
-	if phases == nil {
-		phases = []models.Phase{}
 	}
 	phaseMap := make(map[string]*models.Phase, len(phases))
 	for i := range phases {
@@ -98,40 +105,50 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	}
 	board.Phases = phases
 
-	var columns []models.Column
+	columns := []models.Column{}
 	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
 		return nil, fmt.Errorf("query columns: %w", err)
 	}
 
-	for i := range columns {
-		var cards []models.Card
-		if err := db.Select(&cards, `SELECT id, column_id, title, description, priority, position, parent_card_id, due_date, phase_id, created_at, updated_at FROM cards WHERE column_id = ? ORDER BY position`, columns[i].ID); err != nil {
-			return nil, fmt.Errorf("query cards: %w", err)
-		}
-
-		for j := range cards {
-			var tags []models.Tag
-			if err := db.Select(&tags, `SELECT t.id, t.board_id, t.name, t.color, t.created_at FROM tags t JOIN card_tags ct ON ct.tag_id = t.id WHERE ct.card_id = ?`, cards[j].ID); err != nil {
-				return nil, fmt.Errorf("query tags for card: %w", err)
-			}
-			if tags == nil {
-				tags = []models.Tag{}
-			}
-			cards[j].Tags = tags
-
-			if cards[j].PhaseID != nil {
-				if p, ok := phaseMap[*cards[j].PhaseID]; ok {
-					cards[j].Phase = p
-				}
-			}
-		}
-		if cards == nil {
-			cards = []models.Card{}
-		}
-		columns[i].Cards = cards
+	cards := []models.Card{}
+	if err := db.Select(&cards, `SELECT c.id, c.column_id, c.title, c.description, c.priority, c.position, c.parent_card_id, c.due_date, c.phase_id, c.created_at, c.updated_at
+		FROM cards c JOIN columns col ON col.id = c.column_id
+		WHERE col.board_id = ? ORDER BY col.position, c.position`, board.ID); err != nil {
+		return nil, fmt.Errorf("query cards: %w", err)
 	}
-	if columns == nil {
-		columns = []models.Column{}
+
+	tagRows := []cardTagRow{}
+	if err := db.Select(&tagRows, `SELECT ct.card_id, t.id, t.board_id, t.name, t.color, t.created_at
+		FROM card_tags ct
+		JOIN tags t ON t.id = ct.tag_id
+		JOIN cards c ON c.id = ct.card_id
+		JOIN columns col ON col.id = c.column_id
+		WHERE col.board_id = ? ORDER BY ct.card_id, t.name`, board.ID); err != nil {
+		return nil, fmt.Errorf("query card tags: %w", err)
+	}
+	tagsByCard := make(map[string][]models.Tag, len(tagRows))
+	for _, row := range tagRows {
+		tagsByCard[row.CardID] = append(tagsByCard[row.CardID], row.Tag)
+	}
+
+	cardsByColumn := make(map[string][]models.Card, len(columns))
+	for i := range cards {
+		card := cards[i]
+		card.Tags = tagsByCard[card.ID]
+		if card.Tags == nil {
+			card.Tags = []models.Tag{}
+		}
+		if card.PhaseID != nil {
+			card.Phase = phaseMap[*card.PhaseID]
+		}
+		cardsByColumn[card.ColumnID] = append(cardsByColumn[card.ColumnID], card)
+	}
+
+	for i := range columns {
+		columns[i].Cards = cardsByColumn[columns[i].ID]
+		if columns[i].Cards == nil {
+			columns[i].Cards = []models.Card{}
+		}
 	}
 	board.Columns = columns
 	return board, nil

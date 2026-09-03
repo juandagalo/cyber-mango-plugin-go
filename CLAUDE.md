@@ -135,7 +135,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 93 tests total: 16 in `internal/db`, 62 in `internal/services`, 3 in `internal/sqltx`, 12 in `internal/hooks`
+- 97 tests total: 16 in `internal/db`, 65 in `internal/services`, 3 in `internal/sqltx`, 13 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -188,11 +188,11 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause (`getCard`, `getPhase`, `getTag` helpers)
 - [x] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs); guards extracted into `ensureX` helpers
 - [x] H8 `session-stop` watermark per session (`internal/hooks`): `session_id` from stdin, `stop_report:<id>` key, `datetime(created_at) >= datetime(?)` plus `seen_ids` dedupe, 30-min fallback, 7-day prune
-- [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once
+- [x] H9 `GetBoard` runs 5 fixed queries (board, phases, columns, cards, card tags) and assembles in memory; tags on a card ordered by name. `StartReport` calls `GetBoard` once and derives every count from the tree
 - [ ] H10 `GetBoardSummary` single GROUP BY query
 - [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
 - [ ] H12 Deduplicate column SELECT, priority/color validation, first-board resolution
-- [ ] H13 `session-start` phase list sorted by position, not map order
+- [x] H13 `session-start` phase list sorted by position, not map order (closed by H9's `StartReport` rewrite)
 
 Update this section when a feature ships or a pending item closes.
 

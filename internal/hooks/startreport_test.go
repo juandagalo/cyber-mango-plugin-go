@@ -39,3 +39,28 @@ func TestRecordSessionStartWithoutSessionIDWritesNothing(t *testing.T) {
 		t.Fatalf("expected no watermark rows, found %d", n)
 	}
 }
+
+func TestStartReportListsPhasesInPositionOrderAndAlertCardsByColumn(t *testing.T) {
+	testDB := newTestDB(t)
+	create := func(column, title, priority, phase string) {
+		t.Helper()
+		if _, err := services.CreateCard(testDB, "", "", column, title, "", priority, "", "", phase); err != nil {
+			t.Fatalf("create %s: %v", title, err)
+		}
+	}
+	create("Review", "Ship it", "high", "Ready to Deploy")
+	create("Backlog", "Build it", "high", "Development")
+	create("Backlog", "Loose", "low", "")
+
+	out, err := StartReport(testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Total cards: 3\n")
+	mustContain(t, out, "  Backlog (2 cards): ")
+	mustContain(t, out, "By Phase\n  Development: 1\n  Ready to Deploy: 1\n  unassigned: 1\n")
+	mustContain(t, out, "Priority Alerts\n  HIGH: 2\n    - [Backlog] Build it\n    - [Review] Ship it\n")
+	if strings.Contains(out, "CRITICAL") {
+		t.Fatal("no critical cards, section must be absent")
+	}
+}
