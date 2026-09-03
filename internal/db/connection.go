@@ -34,6 +34,13 @@ func ResolveDbPath() string {
 	return filepath.Join(home, ".cyber-mango", "kanban.db")
 }
 
+// dsnPragmas is appended to every DSN. modernc.org/sqlite runs each `_pragma`
+// value as a PRAGMA statement when it opens a connection.
+const dsnPragmas = "_pragma=journal_mode(WAL)" +
+	"&_pragma=busy_timeout(5000)" +
+	"&_pragma=foreign_keys(1)" +
+	"&_pragma=synchronous(NORMAL)"
+
 // Open opens (or creates) the SQLite database at the given path and applies pragmas.
 func Open(dbPath string) (*sqlx.DB, error) {
 	dir := filepath.Dir(dbPath)
@@ -41,23 +48,21 @@ func Open(dbPath string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
 
-	db, err := sqlx.Open("sqlite", dbPath)
+	// SQLite pragmas are per-connection. Passing them in the DSN makes the
+	// driver run them on every connection the pool opens, not just the first.
+	db, err := sqlx.Open("sqlite", dbPath+"?"+dsnPragmas)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
-	// Apply pragmas on every connection
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA synchronous = NORMAL",
-	}
-	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("apply pragma %q: %w", p, err)
-		}
+	// One connection: SQLite serializes writers anyway, `:memory:` databases
+	// are per-connection, and busy_timeout handles contention with the web UI.
+	db.SetMaxOpenConns(1)
+
+	// Fail fast if the pragmas or the file are unusable.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open db: %w", err)
 	}
 
 	return db, nil

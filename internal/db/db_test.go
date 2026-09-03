@@ -314,3 +314,44 @@ func TestMigration_V2ToV3_DrizzleJournalEntry(t *testing.T) {
 		t.Errorf("want 1 drizzle journal entry for 0003_overjoyed_reaper, got %d", count)
 	}
 }
+
+// pragmaOnFreshConn drops every idle pooled connection and reads a pragma
+// from a brand-new one. This is the path a concurrent tool call takes when
+// the first connection is busy.
+func pragmaOnFreshConn(t *testing.T, db *sqlx.DB, pragma string) int {
+	t.Helper()
+	db.SetMaxIdleConns(0) // closes idle connections, forcing a new one below
+	db.SetMaxIdleConns(2)
+	var v int
+	if err := db.QueryRow("PRAGMA " + pragma).Scan(&v); err != nil {
+		t.Fatalf("read pragma %s: %v", pragma, err)
+	}
+	return v
+}
+
+func TestOpen_PragmasApplyToEveryConnection(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if got := pragmaOnFreshConn(t, db, "foreign_keys"); got != 1 {
+		t.Errorf("foreign_keys on fresh connection = %d, want 1", got)
+	}
+	if got := pragmaOnFreshConn(t, db, "busy_timeout"); got != 5000 {
+		t.Errorf("busy_timeout on fresh connection = %d, want 5000", got)
+	}
+}
+
+func TestOpen_SingleConnectionPool(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if got := db.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1 (SQLite pragmas and :memory: are per-connection)", got)
+	}
+}

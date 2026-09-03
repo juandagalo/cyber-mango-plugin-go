@@ -174,7 +174,7 @@ Known pending items:
 
 Audit findings being fixed with TDD, in this order. Mark each `[x]` when its test is green and the change is committed.
 
-- [ ] H1 Pragmas per connection: apply via DSN `_pragma=` and `SetMaxOpenConns(1)` (`internal/db/connection.go`)
+- [x] H1 Pragmas per connection: apply via DSN `_pragma=` and `SetMaxOpenConns(1)` (`internal/db/connection.go`)
 - [ ] H2 `move_card` with only `position` must keep the current column (`internal/services/card_service.go`)
 - [ ] H3 Drop `omitempty` on Columns/Phases/Cards/Tags; `ListBoards` returns `[]` not `null` (`internal/models/models.go`, `board_service.go`)
 - [ ] H4 Transactions around create card + tags, reorder phases, seed, migration
