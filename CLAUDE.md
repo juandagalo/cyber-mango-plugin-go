@@ -158,7 +158,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - Services are stateless functions taking `*sqlx.DB` — no service structs, no interfaces
 - Handlers struct (`internal/mcp/handlers.go`) holds `*sqlx.DB`, dispatches to service functions
 - Error handling: hooks exit silently on error (exit 0), MCP server exits with error (exit 1)
-- JSON responses: all slice fields initialized to empty `[]` (never nil) to avoid `null` in JSON
+- JSON responses: `Column.Cards`, `Card.Tags`, and every list result are always `[]`, never `null` or omitted. `Board.Columns` and `Board.Phases` are the one exception: they carry `omitempty` because only `get_board` loads them and `list_boards` must not show an empty list for a populated board
 - Column descriptions are used by agents to understand workflow dynamically — agents call `get_board` and read each column's `description` field instead of relying on hardcoded column names
 
 ## Status and Pending Work
@@ -176,7 +176,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 
 - [x] H1 Pragmas per connection: apply via DSN `_pragma=` and `SetMaxOpenConns(1)` (`internal/db/connection.go`)
 - [x] H2 `move_card` with only `position` must keep the current column (`internal/services/card_service.go`)
-- [ ] H3 Drop `omitempty` on Columns/Phases/Cards/Tags; `ListBoards` returns `[]` not `null` (`internal/models/models.go`, `board_service.go`)
+- [x] H3 Drop `omitempty` on `Column.Cards` and `Card.Tags`; `ListBoards` returns `[]` not `null`. `Board.Columns`/`Phases` keep `omitempty` on purpose: only `get_board` loads them
 - [ ] H4 Transactions around create card + tags, reorder phases, seed, migration
 - [ ] H5 Tag writes log activity; `LogActivity` errors propagate
 - [ ] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause

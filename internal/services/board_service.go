@@ -10,7 +10,7 @@ import (
 
 // ListBoards returns all boards.
 func ListBoards(db *sqlx.DB) ([]models.Board, error) {
-	var boards []models.Board
+	boards := []models.Board{}
 	err := db.Select(&boards, `SELECT id, name, description, created_at, updated_at FROM boards ORDER BY created_at`)
 	return boards, err
 }

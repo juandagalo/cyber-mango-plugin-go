@@ -1,6 +1,8 @@
 package services
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -770,5 +772,49 @@ func TestMoveCard_PositionOnly_KeepsCurrentColumn(t *testing.T) {
 	testDB.QueryRow(`SELECT column_id FROM cards WHERE id = ?`, card.ID).Scan(&dbColumnID)
 	if dbColumnID != card.ColumnID {
 		t.Errorf("persisted column_id = %s, want %s", dbColumnID, card.ColumnID)
+	}
+}
+
+func TestCard_JSON_EmptyTagsIsArray(t *testing.T) {
+	testDB := newTestDB(t)
+	card, err := CreateCard(testDB, "", "", "", "No Tags", "", "", "", "", "")
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	out, _ := json.Marshal(card)
+	if !strings.Contains(string(out), `"tags":[]`) {
+		t.Errorf("card JSON must contain \"tags\":[] for a card without tags, got: %s", out)
+	}
+}
+
+func TestGetBoard_JSON_EmptyColumnCardsIsArray(t *testing.T) {
+	testDB := newTestDB(t)
+	board, err := GetBoard(testDB, "")
+	if err != nil {
+		t.Fatalf("GetBoard: %v", err)
+	}
+	out, _ := json.Marshal(board)
+	if got := strings.Count(string(out), `"cards":[]`); got != len(board.Columns) {
+		t.Errorf("want %d columns with \"cards\":[], got %d in: %s", len(board.Columns), got, out)
+	}
+}
+
+func TestListBoards_Empty_JSONIsArray(t *testing.T) {
+	testDB, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { testDB.Close() })
+	if err := db.RunMigrations(testDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	boards, err := ListBoards(testDB)
+	if err != nil {
+		t.Fatalf("ListBoards: %v", err)
+	}
+	out, _ := json.Marshal(boards)
+	if string(out) != `[]` {
+		t.Errorf("ListBoards on empty DB must marshal to [], got %s", out)
 	}
 }

@@ -7,7 +7,8 @@ type Board struct {
 	Description *string `db:"description" json:"description"`
 	CreatedAt   string  `db:"created_at"  json:"created_at"`
 	UpdatedAt   string  `db:"updated_at"  json:"updated_at"`
-	// Populated by GetBoard
+	// Populated by GetBoard only. Kept omitempty so list_boards, which does not
+	// load them, never shows an empty list that reads as "board has no columns".
 	Columns []Column `db:"-" json:"columns,omitempty"`
 	Phases  []Phase  `db:"-" json:"phases,omitempty"`
 }
@@ -24,7 +25,7 @@ type Column struct {
 	CreatedAt   string   `db:"created_at"  json:"created_at"`
 	UpdatedAt   string   `db:"updated_at"  json:"updated_at"`
 	// Populated by GetBoard
-	Cards []Card `db:"-" json:"cards,omitempty"`
+	Cards []Card `db:"-" json:"cards"`
 }
 
 // Card represents a card on the board.
@@ -41,7 +42,7 @@ type Card struct {
 	CreatedAt    string  `db:"created_at"     json:"created_at"`
 	UpdatedAt    string  `db:"updated_at"     json:"updated_at"`
 	// Populated by GetBoard
-	Tags  []Tag  `db:"-" json:"tags,omitempty"`
+	Tags  []Tag  `db:"-" json:"tags"`
 	Phase *Phase `db:"-" json:"phase,omitempty"`
 }
 
