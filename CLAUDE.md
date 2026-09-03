@@ -169,6 +169,7 @@ Known pending items:
 
 - `update_column` tool does not exist. Columns created before schema v3 have `NULL` description and there is no way to fill them from an agent. A card for this exists in the board's Backlog.
 - End-to-end checks not yet recorded: hooks output verified from a directory outside the plugin repo, and shared-DB round trip against the web UI.
+- No `.gitattributes`. With `core.autocrlf=true` git warns "LF will be replaced by CRLF" on every touched file and `gofmt -l` flags CRLF files. Add `* text=auto eol=lf` and one normalization commit.
 
 ### Hardening pass (started 2026-09-03)
 
@@ -181,7 +182,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [ ] H5 Tag writes log activity; `LogActivity` errors propagate
 - [ ] H6 Only `sql.ErrNoRows` maps to `NOT_FOUND`; other DB errors keep their cause
 - [ ] H7 Migration runs the `pragma_table_info` guards even on fresh-version stamp (Drizzle-first DBs)
-- [ ] H8 `session-stop` watermark: RFC3339Nano timestamps or `>=` plus dedupe
+- [ ] H8 `session-stop` watermark per session, not global: read `session_id` from the hook stdin JSON, store one watermark per session, and compare with `>=` plus dedupe by ID (or RFC3339Nano timestamps) so same-second activity is not dropped. Concurrent sessions on the shared DB must not steal each other's summaries
 - [ ] H9 `GetBoard` batched queries (no N+1); `session-start` calls it once
 - [ ] H10 `GetBoardSummary` single GROUP BY query
 - [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
