@@ -16,7 +16,7 @@ Claude Code plugin that provides a cyberpunk-themed kanban board manageable by C
 ## Build
 
 ```bash
-make build        # produces bin/mcp-server, bin/session-start, bin/session-stop
+make build        # produces bin/mcp-server.exe, bin/session-start.exe, bin/session-stop.exe (.exe on every OS)
 make test         # go test ./...
 make clean        # rm -rf bin/
 ```
@@ -59,7 +59,7 @@ Do NOT run `make build` after code changes automatically — only build when exp
 
 ### MCP Config (.mcp.json)
 
-Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes `CYBER_MANGO_DB_PATH` env var.
+Uses `${CLAUDE_PLUGIN_ROOT}` to resolve binary paths. Passes no env vars: the DB path resolves inside the binary (see Database section).
 
 ### Hooks (hooks/)
 
