@@ -26,7 +26,9 @@ Both the plugin and the web UI share the same SQLite database, so changes made b
 | `move_card` | Move a card to a different column or position |
 | `delete_card` | Delete a card |
 | `create_column` | Create a new column on a board |
+| `update_column` | Update a column's name, color, description, or WIP limit |
 | `manage_tags` | Create, assign, remove, list, or delete tags |
+| `manage_phases` | List, create, update, delete, or reorder workflow phases |
 
 ## Skills
 

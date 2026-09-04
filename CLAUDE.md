@@ -112,7 +112,7 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 
 On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (pos 1000), To Do (2000), In Progress (3000), Review (4000), Done (5000). Also seeds 5 default phases: Development (#00FFFF), Code Review (#BF00FF), QA (#FCEE0A), Client Review (#FF00FF), Ready to Deploy (#39FF14).
 
-## MCP Tools (10)
+## MCP Tools (11)
 
 | Tool | Required Params | Optional Params |
 |------|----------------|-----------------|
@@ -124,6 +124,7 @@ On first run (0 boards), creates a "Cyber Mango" board with 5 columns: Backlog (
 | `move_card` | card_id | column_id, column_name, board_id, position |
 | `delete_card` | card_id | — |
 | `create_column` | name | board_id, color, wip_limit, description |
+| `update_column` | column_id | name, color, description, wip_limit, unset_wip_limit |
 | `manage_tags` | action | board_id, tag_id, card_id, name, color |
 | `manage_phases` | action | board_id, phase_id, name, color, ordered_ids |
 
@@ -135,7 +136,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 113 tests total: 20 in `internal/db`, 76 in `internal/services`, 3 in `internal/sqltx`, 14 in `internal/hooks`
+- 123 tests total: 20 in `internal/db`, 86 in `internal/services`, 3 in `internal/sqltx`, 14 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -158,7 +159,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 - All IDs are 12-char nanoid (via `go-nanoid/v2`)
 - All timestamps are UTC RFC3339 strings
-- Every write operation (card create/update/move/delete, column create, phase create/update/delete/reorder, tag create/assign/remove/delete) logs to `activity_log`, and a `LogActivity` error propagates to the caller
+- Every write operation (card create/update/move/delete, column create/update, phase create/update/delete/reorder, tag create/assign/remove/delete) logs to `activity_log`, and a `LogActivity` error propagates to the caller
 - Services are stateless functions taking `*sqlx.DB` — no service structs. The one interface is `services.Querier` (satisfied by `*sqlx.DB` and `*sqlx.Tx`), used only by helpers that must run inside a transaction
 - Multi-statement writes (create card + tags, reorder phases, seed, each migration step) run inside `sqltx.Run`. Everything inside the closure MUST use the `*sqlx.Tx`: the pool has one connection, so a call on `*sqlx.DB` while a tx is open blocks forever
 - Handlers struct (`internal/mcp/handlers.go`) holds `*sqlx.DB`, dispatches to service functions
@@ -168,11 +169,10 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Status and Pending Work
 
-Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0), hardening pass H1-H13 with per-session stop summaries, activity_log indexes, transactional writes and trimmed skills (schema v4, v0.3.0).
+Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0), hardening pass H1-H13 with per-session stop summaries, activity_log indexes, transactional writes and trimmed skills (schema v4, v0.3.0), `update_column` tool.
 
 Known pending items:
 
-- `update_column` tool does not exist. Columns created before schema v3 have `NULL` description and there is no way to fill them from an agent. A card for this exists in the board's Backlog.
 - End-to-end checks not yet recorded: hooks output verified from a directory outside the plugin repo, and shared-DB round trip against the web UI.
 - No `.gitattributes`. With `core.autocrlf=true` git warns "LF will be replaced by CRLF" on every touched file and `gofmt -l` flags CRLF files. Add `* text=auto eol=lf` and one normalization commit.
 

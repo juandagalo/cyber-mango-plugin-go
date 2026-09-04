@@ -1763,3 +1763,176 @@ func TestNormalizeColor(t *testing.T) {
 		})
 	}
 }
+
+// --- UpdateColumn tests ---
+
+func TestUpdateColumn_SetsDescriptionAndPersists(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+	seeded := board.Columns[0]
+	// Simulate a column created before schema v3, which has no description.
+	if _, err := testDB.Exec(`UPDATE columns SET description = NULL WHERE id = ?`, seeded.ID); err != nil {
+		t.Fatalf("null description: %v", err)
+	}
+
+	desc := "Ideas and requests not yet planned"
+	col, err := UpdateColumn(testDB, seeded.ID, "", "", "  "+desc+"  ", nil, false)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+	if col.Description == nil || *col.Description != desc {
+		t.Errorf("want trimmed description %q, got %v", desc, col.Description)
+	}
+
+	reread, err := GetBoard(testDB, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reread.Columns[0].Description; got == nil || *got != desc {
+		t.Errorf("persisted description: want %q, got %v", desc, got)
+	}
+}
+
+func TestUpdateColumn_OnlyProvidedFieldsChange(t *testing.T) {
+	testDB := newTestDB(t)
+	limit := 3
+	created, err := CreateColumn(testDB, "", "Staging", "#123456", "Waiting for deploy", &limit)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+
+	col, err := UpdateColumn(testDB, created.ID, "Pre-prod", "", "", nil, false)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+	if col.Name != "Pre-prod" {
+		t.Errorf("name = %q, want %q", col.Name, "Pre-prod")
+	}
+	if col.Color != "#123456" {
+		t.Errorf("color changed to %q", col.Color)
+	}
+	if col.Description == nil || *col.Description != "Waiting for deploy" {
+		t.Errorf("description changed to %v", col.Description)
+	}
+	if col.WipLimit == nil || *col.WipLimit != 3 {
+		t.Errorf("wip_limit changed to %v", col.WipLimit)
+	}
+	if col.Position != created.Position {
+		t.Errorf("position changed from %v to %v", created.Position, col.Position)
+	}
+}
+
+func TestUpdateColumn_UnsetWipLimit(t *testing.T) {
+	testDB := newTestDB(t)
+	limit := 5
+	created, err := CreateColumn(testDB, "", "Limited", "#abcdef", "", &limit)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+
+	ignored := 9
+	col, err := UpdateColumn(testDB, created.ID, "", "", "", &ignored, true)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+	if col.WipLimit != nil {
+		t.Errorf("want nil wip_limit, got %d", *col.WipLimit)
+	}
+
+	var got *int
+	testDB.QueryRow(`SELECT wip_limit FROM columns WHERE id = ?`, created.ID).Scan(&got)
+	if got != nil {
+		t.Errorf("want NULL wip_limit in DB, got %d", *got)
+	}
+}
+
+func TestUpdateColumn_SetWipLimit(t *testing.T) {
+	testDB := newTestDB(t)
+	created, err := CreateColumn(testDB, "", "Unlimited", "#abcdef", "", nil)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+
+	limit := 4
+	col, err := UpdateColumn(testDB, created.ID, "", "", "", &limit, false)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+	if col.WipLimit == nil || *col.WipLimit != 4 {
+		t.Errorf("want wip_limit 4, got %v", col.WipLimit)
+	}
+}
+
+func TestUpdateColumn_InvalidColor(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+
+	_, err := UpdateColumn(testDB, board.Columns[0].ID, "", "red", "", nil, false)
+	if err == nil || !strings.HasPrefix(err.Error(), "VALIDATION:") {
+		t.Errorf("want VALIDATION error for invalid color, got %v", err)
+	}
+}
+
+func TestUpdateColumn_UnknownColumn(t *testing.T) {
+	testDB := newTestDB(t)
+
+	_, err := UpdateColumn(testDB, "does-not-exist", "X", "", "", nil, false)
+	if err == nil || !strings.HasPrefix(err.Error(), "NOT_FOUND:") {
+		t.Errorf("want NOT_FOUND error, got %v", err)
+	}
+}
+
+func TestUpdateColumn_NothingToUpdate(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+
+	_, err := UpdateColumn(testDB, board.Columns[0].ID, "", "", "", nil, false)
+	if err == nil || err.Error() != "VALIDATION: nothing to update" {
+		t.Errorf("want 'VALIDATION: nothing to update', got %v", err)
+	}
+}
+
+func TestUpdateColumn_LogsActivity(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+
+	col, err := UpdateColumn(testDB, board.Columns[0].ID, "Inbox", "", "", nil, false)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+
+	row := singleActivity(t, testDB, "column_updated")
+	if row.BoardID != board.ID {
+		t.Errorf("board_id = %q, want %q", row.BoardID, board.ID)
+	}
+	if row.CardID != nil {
+		t.Errorf("card_id = %q, want NULL", *row.CardID)
+	}
+	if row.Details == nil || !strings.Contains(*row.Details, col.Name) {
+		t.Errorf("details should mention the column name %q, got %v", col.Name, row.Details)
+	}
+}
+
+func TestUpdateColumn_LogActivityErrorPropagates(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+	failActivityLog(t, testDB)
+
+	if _, err := UpdateColumn(testDB, board.Columns[0].ID, "Inbox", "", "", nil, false); err == nil {
+		t.Fatal("want error when activity log insert fails, got nil")
+	}
+}
+
+func TestUpdateColumn_JSON_EmptyCardsIsArray(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := GetBoard(testDB, "")
+
+	col, err := UpdateColumn(testDB, board.Columns[0].ID, "", "#00ff00", "", nil, false)
+	if err != nil {
+		t.Fatalf("UpdateColumn: %v", err)
+	}
+	out, _ := json.Marshal(col)
+	if !strings.Contains(string(out), `"cards":[]`) {
+		t.Errorf("want \"cards\":[] in JSON, got %s", out)
+	}
+}

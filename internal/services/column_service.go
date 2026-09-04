@@ -81,3 +81,47 @@ func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimi
 	}
 	return col, nil
 }
+
+// UpdateColumn changes only the provided fields; unsetWipLimit wins over wipLimit.
+func UpdateColumn(db *sqlx.DB, columnID, name, color, description string, wipLimit *int, unsetWipLimit bool) (*models.Column, error) {
+	col, err := getColumn(db, columnID)
+	if err != nil {
+		return nil, err
+	}
+
+	if name == "" && color == "" && strings.TrimSpace(description) == "" && wipLimit == nil && !unsetWipLimit {
+		return nil, fmt.Errorf("VALIDATION: nothing to update")
+	}
+
+	if name != "" {
+		col.Name = name
+	}
+	if color != "" {
+		if col.Color, err = normalizeColor(color, col.Color); err != nil {
+			return nil, err
+		}
+	}
+	if trimmed := strings.TrimSpace(description); trimmed != "" {
+		col.Description = &trimmed
+	}
+	if unsetWipLimit {
+		col.WipLimit = nil
+	} else if wipLimit != nil {
+		col.WipLimit = wipLimit
+	}
+	col.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	_, err = db.Exec(
+		`UPDATE columns SET name = ?, color = ?, description = ?, wip_limit = ?, updated_at = ? WHERE id = ?`,
+		col.Name, col.Color, col.Description, col.WipLimit, col.UpdatedAt, col.ID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update column: %w", err)
+	}
+
+	if err := LogActivity(db, col.BoardID, nil, "column_updated", fmt.Sprintf("Updated column: %s", col.Name), ""); err != nil {
+		return nil, fmt.Errorf("log activity: %w", err)
+	}
+	col.Cards = []models.Card{}
+	return col, nil
+}

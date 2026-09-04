@@ -50,7 +50,7 @@ Users may refer to cards as "tickets", "tasks", "items", or "work items". These 
 
 ## Placement
 
-Call `get_board_summary`; each column's `description` says what state it represents. Pick the column whose description fits the current work state. Do not assume column names map to a fixed meaning. If a column has no description, infer its purpose from position (first column is intake, last column is terminal) and then from its name.
+Call `get_board_summary`; each column's `description` says what state it represents. Pick the column whose description fits the current work state. Do not assume column names map to a fixed meaning. If a column has no description, infer its purpose from position (first column is intake, last column is terminal) and then from its name. When you have inferred it with confidence, persist it with `update_column` so later sessions do not have to guess.
 
 Work moves left to right by position. Never skip columns without a stated reason; if a card jumps from the first column to the last, confirm with the user.
 

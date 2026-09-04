@@ -76,6 +76,16 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithNumber("wip_limit", mcp.Description("WIP limit (optional)")),
 	), h.CreateColumn)
 
+	s.AddTool(mcp.NewTool("update_column",
+		mcp.WithDescription("Update a column's name, color, description or WIP limit. Use it to fill in a missing column description so agents can understand the workflow."),
+		mcp.WithString("column_id", mcp.Required(), mcp.Description("Column ID")),
+		mcp.WithString("name", mcp.Description("New column name")),
+		mcp.WithString("color", mcp.Description("Hex color, exactly #RRGGBB (7 chars). Other values are rejected with VALIDATION. Example: #3b82f6")),
+		mcp.WithString("description", mcp.Description("Column purpose — describes what this column means in the workflow. Agents use this to understand where to move cards.")),
+		mcp.WithNumber("wip_limit", mcp.Description("New WIP limit")),
+		mcp.WithBoolean("unset_wip_limit", mcp.Description("Set to true to remove the WIP limit")),
+	), h.UpdateColumn)
+
 	s.AddTool(mcp.NewTool("manage_phases",
 		mcp.WithDescription("Manage workflow phases on a board (list, create, update, delete, reorder)"),
 		mcp.WithString("action", mcp.Required(), mcp.Description("Action: list, create, update, delete, reorder")),

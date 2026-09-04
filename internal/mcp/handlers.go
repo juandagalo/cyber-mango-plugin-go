@@ -189,6 +189,45 @@ func (h *Handlers) CreateColumn(ctx context.Context, req mcp.CallToolRequest) (*
 	return jsonResult(col)
 }
 
+func (h *Handlers) UpdateColumn(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	columnID := req.GetString("column_id", "")
+	if columnID == "" {
+		return errResult("VALIDATION: column_id is required"), nil
+	}
+
+	var wipLimit *int
+	var unsetWipLimit bool
+	if args := req.GetArguments(); args != nil {
+		if v, ok := args["wip_limit"]; ok {
+			switch f := v.(type) {
+			case float64:
+				x := int(f)
+				wipLimit = &x
+			case int:
+				wipLimit = &f
+			}
+		}
+		if v, ok := args["unset_wip_limit"]; ok {
+			if b, ok := v.(bool); ok {
+				unsetWipLimit = b
+			}
+		}
+	}
+
+	col, err := services.UpdateColumn(
+		h.db, columnID,
+		req.GetString("name", ""),
+		req.GetString("color", ""),
+		req.GetString("description", ""),
+		wipLimit,
+		unsetWipLimit,
+	)
+	if err != nil {
+		return errResult(err.Error()), nil
+	}
+	return jsonResult(col)
+}
+
 func (h *Handlers) ManagePhases(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	action := req.GetString("action", "")
 	if action == "" {

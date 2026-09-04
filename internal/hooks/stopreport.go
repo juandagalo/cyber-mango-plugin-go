@@ -236,6 +236,7 @@ func FormatSummary(activities []models.ActivityLog) string {
 		{"card_moved", "Cards moved"},
 		{"card_deleted", "Cards deleted"},
 		{"column_created", "Columns created"},
+		{"column_updated", "Columns updated"},
 		{"phase_created", "Phases created"},
 		{"phase_updated", "Phases updated"},
 		{"phase_deleted", "Phases deleted"},

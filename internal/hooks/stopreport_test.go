@@ -235,7 +235,7 @@ func TestStopPrunesStaleWatermarks(t *testing.T) {
 func TestFormatSummaryCountsEveryAction(t *testing.T) {
 	actions := []string{
 		"card_created", "card_created", "card_updated", "card_moved", "card_deleted",
-		"column_created", "phase_created", "phase_updated", "phase_deleted", "phases_reordered",
+		"column_created", "column_updated", "phase_created", "phase_updated", "phase_deleted", "phases_reordered",
 		"tag_created", "tag_assigned", "tag_assigned", "tag_removed", "tag_deleted",
 	}
 	var logs []models.ActivityLog
@@ -249,6 +249,7 @@ func TestFormatSummaryCountsEveryAction(t *testing.T) {
 		"  Cards moved: 1\n" +
 		"  Cards deleted: 1\n" +
 		"  Columns created: 1\n" +
+		"  Columns updated: 1\n" +
 		"  Phases created: 1\n" +
 		"  Phases updated: 1\n" +
 		"  Phases deleted: 1\n" +
