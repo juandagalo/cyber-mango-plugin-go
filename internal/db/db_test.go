@@ -315,6 +315,21 @@ func TestMigration_V2ToV3_DrizzleJournalEntry(t *testing.T) {
 	}
 }
 
+// TestMigration_V3ToV4_DrizzleJournalEntry verifies the 0004_real_tomorrow_man entry
+// is inserted into __drizzle_migrations after the v3->v4 migration, so the web
+// UI does not re-run its CREATE INDEX migration on a plugin-first DB.
+func TestMigration_V3ToV4_DrizzleJournalEntry(t *testing.T) {
+	db := newTestDBAtV3(t)
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations on v3 db: %v", err)
+	}
+
+	if got := journalRowCount(t, db, "0004_real_tomorrow_man"); got != 1 {
+		t.Errorf("want 1 drizzle journal entry for 0004_real_tomorrow_man, got %d", got)
+	}
+}
+
 // pragmaOnFreshConn drops every idle pooled connection and reads a pragma
 // from a brand-new one. This is the path a concurrent tool call takes when
 // the first connection is busy.
@@ -573,7 +588,7 @@ func TestRunMigrations_DrizzleFirstV1Schema_AddsMissingColumns(t *testing.T) {
 	if version != currentSchemaVersion {
 		t.Errorf("want schema_version %s, got %q", currentSchemaVersion, version)
 	}
-	for _, tag := range []string{"0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper"} {
+	for _, tag := range []string{"0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper", "0004_real_tomorrow_man"} {
 		if got := journalRowCount(t, db, tag); got != 1 {
 			t.Errorf("want 1 journal row for %s, got %d", tag, got)
 		}
@@ -614,10 +629,10 @@ func TestRunMigrations_DrizzleFirstCurrentSchema_StampsWithoutDuplicates(t *test
 	if err := db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations`).Scan(&total); err != nil {
 		t.Fatalf("count journal rows: %v", err)
 	}
-	if total != 5 {
-		t.Errorf("want 5 journal rows (sha256 + 0000..0003), got %d", total)
+	if total != 6 {
+		t.Errorf("want 6 journal rows (sha256 + 0000..0004), got %d", total)
 	}
-	for _, tag := range []string{"0000_wandering_sister_grimm", "0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper"} {
+	for _, tag := range []string{"0000_wandering_sister_grimm", "0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper", "0004_real_tomorrow_man"} {
 		if got := journalRowCount(t, db, tag); got != 1 {
 			t.Errorf("want 1 journal row for %s, got %d", tag, got)
 		}

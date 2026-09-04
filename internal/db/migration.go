@@ -102,14 +102,21 @@ func migrateV2ToV3(tx *sqlx.Tx) error {
 	return nil
 }
 
-// migrateV3ToV4 is Go-only: the web UI has no matching Drizzle migration, so
-// no journal tag is written.
+// migrateV3ToV4 adds the activity_log indexes. The web UI's matching Drizzle
+// migration is 0004_real_tomorrow_man (CREATE INDEX IF NOT EXISTS on both), so
+// the journal tag is written to keep Drizzle from re-running it.
 func migrateV3ToV4(tx *sqlx.Tx) error {
 	if err := ensureActivityLogIndexes(tx); err != nil {
 		return fmt.Errorf("migrate v3->v4: %w", err)
 	}
 	if _, err := tx.Exec(`UPDATE _meta SET value = '4' WHERE key = 'schema_version'`); err != nil {
 		return fmt.Errorf("migrate v3->v4 update schema version: %w", err)
+	}
+	if err := ensureJournalTable(tx); err != nil {
+		return fmt.Errorf("migrate v3->v4: %w", err)
+	}
+	if err := ensureJournalTag(tx, "0004_real_tomorrow_man", 1788543957418); err != nil {
+		return fmt.Errorf("migrate v3->v4: %w", err)
 	}
 	return nil
 }
@@ -203,6 +210,9 @@ CREATE TABLE IF NOT EXISTS activity_log (
 		return fmt.Errorf("create schema: %w", err)
 	}
 	if err := ensureActivityLogIndexes(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := ensureJournalTag(tx, "0004_real_tomorrow_man", 1788543957418); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {

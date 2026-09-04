@@ -97,7 +97,7 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 - `cards` — id, column_id (FK), title, description, priority (CHECK: low/medium/high/critical), position (REAL), parent_card_id, due_date, phase_id (FK nullable, ON DELETE SET NULL), timestamps
 - `tags` — id, board_id (FK), name, color. Unique index on (board_id, name).
 - `card_tags` — card_id + tag_id (composite PK, both FK with CASCADE)
-- `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp. Indexes: `idx_activity_log_datetime` on `datetime(created_at)` (expression index; the hooks' WHERE must use that exact text) and `idx_activity_log_board_created` on (board_id, created_at). Schema v4 is Go-only, no Drizzle journal tag
+- `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp. Indexes: `idx_activity_log_datetime` on `datetime(created_at)` (expression index; the hooks' WHERE must use that exact text) and `idx_activity_log_board_created` on (board_id, created_at). Schema v4 matches the web UI's Drizzle migration `0004_real_tomorrow_man`
 - `_meta` — key/value for schema versioning (current: "4"). Also holds the per-session `stop_report:<session_id>` watermarks
 - `__drizzle_migrations` — Drizzle ORM journal (seeded by Go plugin so web UI recognizes schema)
 
@@ -153,7 +153,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - **Position is REAL** — Cards use `maxPos + 1`, columns use `maxPos + 1000`. Fractional positioning is supported for reordering.
 - **Migration chaining** — `RunMigrations` must update its local `version` variable after each step, otherwise a v1 DB stops at v2 in a single run. Keep this pattern when adding v4+.
 - **Drizzle-first DBs** — When the web UI creates the file first there is no `_meta` row, so `createSchema` runs against existing tables where `CREATE TABLE IF NOT EXISTS` is a no-op. It therefore runs every idempotent guard (`ensurePhasesTable`, `ensureCardsPhaseID`, `ensureColumnsDescription`, `ensureJournalTag`) before stamping the current version. A new schema change needs one `ensureX` helper called from both its incremental step and `createSchema`.
-- **Drizzle journal formats coexist** — The web UI writes SHA-256 content hashes into `__drizzle_migrations`; the Go plugin writes tag names (`0001_right_polaris`, `0002_old_vengeance`, `0003_overjoyed_reaper`). Each side checks its own format, so both rows can live in the same table. When the web UI adds a migration, add the matching tag here.
+- **Drizzle journal formats coexist** — The web UI writes SHA-256 content hashes into `__drizzle_migrations`; the Go plugin writes tag names (`0001_right_polaris`, `0002_old_vengeance`, `0003_overjoyed_reaper`, `0004_real_tomorrow_man`). Each side checks its own format, so both rows can live in the same table. When the web UI adds a migration, add the matching tag here.
 
 ## Conventions
 
