@@ -71,7 +71,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithDescription("Create a new column on a kanban board"),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Column name")),
 		mcp.WithString("board_id", mcp.Description("Board ID")),
-		mcp.WithString("color", mcp.Description("Hex color (e.g. #3b82f6)")),
+		mcp.WithString("color", mcp.Description("Hex color, exactly #RRGGBB (7 chars). Other values are rejected with VALIDATION. Example: #3b82f6")),
 		mcp.WithString("description", mcp.Description("Column purpose — describes what this column means in the workflow. Agents use this to understand where to move cards.")),
 		mcp.WithNumber("wip_limit", mcp.Description("WIP limit (optional)")),
 	), h.CreateColumn)
@@ -82,7 +82,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("board_id", mcp.Description("Board ID")),
 		mcp.WithString("phase_id", mcp.Description("Phase ID")),
 		mcp.WithString("name", mcp.Description("Phase name")),
-		mcp.WithString("color", mcp.Description("Hex color (e.g. #00FFFF)")),
+		mcp.WithString("color", mcp.Description("Hex color, exactly #RRGGBB (7 chars). Other values are rejected with VALIDATION. Default: #00FFFF")),
 		mcp.WithString("ordered_ids", mcp.Description("JSON array of phase IDs for reorder (e.g. [\"id1\",\"id2\"])")),
 	), h.ManagePhases)
 
@@ -93,7 +93,7 @@ func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
 		mcp.WithString("tag_id", mcp.Description("Tag ID")),
 		mcp.WithString("card_id", mcp.Description("Card ID")),
 		mcp.WithString("name", mcp.Description("Tag name")),
-		mcp.WithString("color", mcp.Description("Hex color")),
+		mcp.WithString("color", mcp.Description("Hex color, exactly #RRGGBB (7 chars). Other values are rejected with VALIDATION.")),
 	), h.ManageTags)
 
 	return s
