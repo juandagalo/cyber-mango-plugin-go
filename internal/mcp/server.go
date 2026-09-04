@@ -7,7 +7,7 @@ import (
 )
 
 func NewServer(db *sqlx.DB) *mcpserver.MCPServer {
-	s := mcpserver.NewMCPServer("cyber-mango", "0.4.0",
+	s := mcpserver.NewMCPServer("cyber-mango", "0.4.1",
 		mcpserver.WithToolCapabilities(true),
 	)
 	h := NewHandlers(db)
