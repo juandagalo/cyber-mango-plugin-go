@@ -171,10 +171,12 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0), hardening pass H1-H13 with per-session stop summaries, activity_log indexes, transactional writes and trimmed skills (schema v4, v0.3.0), `update_column` tool.
 
+End-to-end checks recorded on 2026-09-04, run from a directory outside the repo against a fresh DB via `CYBER_MANGO_DB_PATH`: `session-start` prints the board summary, the MCP server lists 11 tools and serves `create_card` and `update_column` over stdio JSON-RPC, and `session-stop` reports the activity for the session id, for an unknown id and with no stdin. Line endings are normalized by `.gitattributes` (`* text=auto eol=lf`); the index was already LF, so the working tree only needed a re-checkout.
+
 Known pending items:
 
-- End-to-end checks not yet recorded: hooks output verified from a directory outside the plugin repo, and shared-DB round trip against the web UI.
-- No `.gitattributes`. With `core.autocrlf=true` git warns "LF will be replaced by CRLF" on every touched file and `gofmt -l` flags CRLF files. Add `* text=auto eol=lf` and one normalization commit.
+- Shared-DB round trip against the web UI is not verified live: the web UI is not installed on the dev machine. A read-only inspection of `~/.cyber-mango/kanban.db` confirms both `__drizzle_migrations` formats coexist and `columns.description` is present.
+- `bin/` and the installed plugin cache (`~/.claude/plugins/cache/cyber-mango-marketplace/cyber-mango/0.2.0`) still hold binaries from 2026-04-23, so the shared DB is still at schema v3 and none of the hardening is live. Rebuild with `make build`, then `claude plugin update cyber-mango`; the v4 migration runs on the next start.
 
 ### Hardening pass (started 2026-09-03)
 
