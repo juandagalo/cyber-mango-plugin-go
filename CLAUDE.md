@@ -178,7 +178,7 @@ Shared-DB round trip verified on 2026-09-04 against a copy of the real `~/.cyber
 Known pending items:
 
 - The web UI does not write to `activity_log`, so the Stop hook never reports changes made through the browser. That is a web UI gap, not a plugin one.
-- The installed plugin cache (`~/.claude/plugins/cache/cyber-mango-marketplace/cyber-mango/0.2.0`) still holds binaries from 2026-04-23. `bin/` was rebuilt at v0.4.0 on 2026-09-04; run `claude plugin update cyber-mango` so sessions pick it up. The v4 migration runs on the next start against the real DB.
+- The installed plugin was updated to 0.4.0 on 2026-09-04 (`claude plugin update cyber-mango`); the v4 migration runs against the real DB on the first session after restarting Claude Code. Confirm with `claude mcp list` and the SessionStart summary.
 
 ### Hardening pass (started 2026-09-03)
 
