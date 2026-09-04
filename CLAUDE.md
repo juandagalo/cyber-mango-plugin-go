@@ -178,7 +178,7 @@ Shared-DB round trip verified on 2026-09-04 against a copy of the real `~/.cyber
 Known pending items:
 
 - The web UI does not write to `activity_log`, so the Stop hook never reports changes made through the browser. That is a web UI gap, not a plugin one.
-- The installed plugin was updated to 0.4.0 on 2026-09-04 (`claude plugin update cyber-mango`); the v4 migration runs against the real DB on the first session after restarting Claude Code. Confirm with `claude mcp list` and the SessionStart summary.
+- The installed plugin was updated to 0.4.1 on 2026-09-04 (`claude plugin update cyber-mango`); from the first session after restarting Claude Code, `session-start` tags `0004_real_tomorrow_man` in the real DB's `__drizzle_migrations`. Confirm with `claude mcp list` and the SessionStart summary.
 
 ### Hardening pass (started 2026-09-03)
 
