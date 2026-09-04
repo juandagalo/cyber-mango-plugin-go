@@ -97,8 +97,8 @@ The `isResolved()` guard in `connection.go` rejects unexpanded template strings 
 - `cards` — id, column_id (FK), title, description, priority (CHECK: low/medium/high/critical), position (REAL), parent_card_id, due_date, phase_id (FK nullable, ON DELETE SET NULL), timestamps
 - `tags` — id, board_id (FK), name, color. Unique index on (board_id, name).
 - `card_tags` — card_id + tag_id (composite PK, both FK with CASCADE)
-- `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp
-- `_meta` — key/value for schema versioning (current: "3")
+- `activity_log` — id, board_id (FK), card_id, action, details, agent, timestamp. Indexes: `idx_activity_log_datetime` on `datetime(created_at)` (expression index; the hooks' WHERE must use that exact text) and `idx_activity_log_board_created` on (board_id, created_at). Schema v4 is Go-only, no Drizzle journal tag
+- `_meta` — key/value for schema versioning (current: "4"). Also holds the per-session `stop_report:<session_id>` watermarks
 - `__drizzle_migrations` — Drizzle ORM journal (seeded by Go plugin so web UI recognizes schema)
 
 ### Pragmas (applied on every Open)
@@ -135,7 +135,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 100 tests total: 16 in `internal/db`, 68 in `internal/services`, 3 in `internal/sqltx`, 13 in `internal/hooks`
+- 109 tests total: 20 in `internal/db`, 72 in `internal/services`, 3 in `internal/sqltx`, 14 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -190,7 +190,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H8 `session-stop` watermark per session (`internal/hooks`): `session_id` from stdin, `stop_report:<id>` key, `datetime(created_at) >= datetime(?)` plus `seen_ids` dedupe, 30-min fallback, 7-day prune
 - [x] H9 `GetBoard` runs 5 fixed queries (board, phases, columns, cards, card tags) and assembles in memory; tags on a card ordered by name. `StartReport` calls `GetBoard` once and derives every count from the tree
 - [x] H10 `GetBoardSummary` runs 4 fixed queries (board, columns, phases, one `GROUP BY column_id, priority, phase_id` aggregate) and folds in memory; query errors propagate
-- [ ] H11 Indexes on `activity_log`; `COLLATE NOCASE` name lookups for tags/phases
+- [x] H11 Schema v4: `activity_log` indexes (`ensureActivityLogIndexes`); tag/phase name lookups use `name = ? COLLATE NOCASE` (unique indexes untouched); phase duplicate-check errors propagate
 - [ ] H12 Deduplicate column SELECT, priority/color validation, first-board resolution
 - [x] H13 `session-start` phase list sorted by position, not map order (closed by H9's `StartReport` rewrite)
 

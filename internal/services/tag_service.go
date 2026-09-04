@@ -98,7 +98,7 @@ func FindOrCreateTag(q Querier, boardID, name string) (*models.Tag, error) {
 	}
 
 	var existing models.Tag
-	err := q.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name)
+	err := q.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND name = ? COLLATE NOCASE`, boardID, name)
 	if err == nil {
 		return &existing, nil
 	}

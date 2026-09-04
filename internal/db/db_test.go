@@ -424,8 +424,8 @@ func TestMigration_V2ToV3_FailureMidWayKeepsVersion(t *testing.T) {
 		t.Fatalf("migration after rollback: %v", err)
 	}
 	db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version)
-	if version != "3" {
-		t.Errorf("want schema_version 3 after retried migration, got %q", version)
+	if version != currentSchemaVersion {
+		t.Errorf("want schema_version %s after retried migration, got %q", currentSchemaVersion, version)
 	}
 }
 
@@ -570,8 +570,8 @@ func TestRunMigrations_DrizzleFirstV1Schema_AddsMissingColumns(t *testing.T) {
 	if err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if version != "3" {
-		t.Errorf("want schema_version 3, got %q", version)
+	if version != currentSchemaVersion {
+		t.Errorf("want schema_version %s, got %q", currentSchemaVersion, version)
 	}
 	for _, tag := range []string{"0001_right_polaris", "0002_old_vengeance", "0003_overjoyed_reaper"} {
 		if got := journalRowCount(t, db, tag); got != 1 {
@@ -607,8 +607,8 @@ func TestRunMigrations_DrizzleFirstCurrentSchema_StampsWithoutDuplicates(t *test
 	if err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if version != "3" {
-		t.Errorf("want schema_version 3, got %q", version)
+	if version != currentSchemaVersion {
+		t.Errorf("want schema_version %s, got %q", currentSchemaVersion, version)
 	}
 	var total int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM __drizzle_migrations`).Scan(&total); err != nil {
@@ -621,5 +621,128 @@ func TestRunMigrations_DrizzleFirstCurrentSchema_StampsWithoutDuplicates(t *test
 		if got := journalRowCount(t, db, tag); got != 1 {
 			t.Errorf("want 1 journal row for %s, got %d", tag, got)
 		}
+	}
+}
+
+// --- H11 activity_log index tests ---
+
+// newTestDBAtV3 is a v2 fixture carried to the v3 shape by hand, so the
+// v3->v4 step runs alone.
+func newTestDBAtV3(t *testing.T) *sqlx.DB {
+	t.Helper()
+	db := newTestDBAtV2(t)
+	if _, err := db.Exec(`ALTER TABLE columns ADD COLUMN description TEXT`); err != nil {
+		t.Fatalf("add columns.description: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE _meta SET value = '3' WHERE key = 'schema_version'`); err != nil {
+		t.Fatalf("set schema version 3: %v", err)
+	}
+	return db
+}
+
+func activityLogIndexes(t *testing.T, db *sqlx.DB) map[string]bool {
+	t.Helper()
+	var names []string
+	if err := db.Select(&names, `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'activity_log' AND name NOT LIKE 'sqlite_autoindex%'`); err != nil {
+		t.Fatalf("list activity_log indexes: %v", err)
+	}
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+	}
+	return got
+}
+
+func schemaVersion(t *testing.T, db *sqlx.DB) string {
+	t.Helper()
+	var version string
+	if err := db.QueryRow(`SELECT value FROM _meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	return version
+}
+
+func assertActivityLogIndexes(t *testing.T, db *sqlx.DB) {
+	t.Helper()
+	got := activityLogIndexes(t, db)
+	for _, want := range []string{"idx_activity_log_datetime", "idx_activity_log_board_created"} {
+		if !got[want] {
+			t.Errorf("want index %s on activity_log, have %v", want, got)
+		}
+	}
+}
+
+func TestRunMigrations_FreshSchemaIsV4WithActivityLogIndexes(t *testing.T) {
+	db := newTestDB(t)
+
+	if got := schemaVersion(t, db); got != "4" {
+		t.Errorf("want schema_version 4, got %q", got)
+	}
+	assertActivityLogIndexes(t, db)
+}
+
+func TestMigration_V3ToV4_AddsActivityLogIndexes(t *testing.T) {
+	db := newTestDBAtV3(t)
+	if got := activityLogIndexes(t, db); len(got) != 0 {
+		t.Fatalf("v3 fixture must start without activity_log indexes, have %v", got)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations on v3 db: %v", err)
+	}
+	if got := schemaVersion(t, db); got != "4" {
+		t.Errorf("want schema_version 4, got %q", got)
+	}
+	assertActivityLogIndexes(t, db)
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("second RunMigrations (idempotent check): %v", err)
+	}
+}
+
+func TestMigration_V3ToV4_FailureMidWayKeepsVersion(t *testing.T) {
+	db := newTestDBAtV3(t)
+
+	// Both CREATE INDEX statements are already applied when this fires.
+	if _, err := db.Exec(`CREATE TRIGGER fail_stamp BEFORE UPDATE ON _meta WHEN NEW.value = '4' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	if err := RunMigrations(db); err == nil {
+		t.Fatal("expected an error from the aborted version stamp")
+	}
+	if got := schemaVersion(t, db); got != "3" {
+		t.Errorf("want schema_version 3 after failed migration, got %q", got)
+	}
+	if got := activityLogIndexes(t, db); len(got) != 0 {
+		t.Errorf("want no activity_log indexes after failed migration, have %v", got)
+	}
+
+	if _, err := db.Exec(`DROP TRIGGER fail_stamp`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("migration after rollback: %v", err)
+	}
+	if got := schemaVersion(t, db); got != "4" {
+		t.Errorf("want schema_version 4 after retried migration, got %q", got)
+	}
+	assertActivityLogIndexes(t, db)
+}
+
+func TestRunMigrations_DrizzleFirst_GetsActivityLogIndexes(t *testing.T) {
+	for name, db := range map[string]*sqlx.DB{
+		"v1 shape":      newDrizzleFirstDB(t, false, false, false),
+		"current shape": newDrizzleFirstDB(t, true, true, true),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := RunMigrations(db); err != nil {
+				t.Fatalf("RunMigrations on drizzle-first db: %v", err)
+			}
+			if got := schemaVersion(t, db); got != "4" {
+				t.Errorf("want schema_version 4, got %q", got)
+			}
+			assertActivityLogIndexes(t, db)
+		})
 	}
 }

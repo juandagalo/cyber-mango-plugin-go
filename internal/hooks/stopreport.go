@@ -23,6 +23,20 @@ const (
 	sqliteTimeFmt   = "2006-01-02 15:04:05"
 )
 
+// Both queries filter on datetime(created_at) so that RFC3339 rows (written
+// by LogActivity) and SQLite-default "YYYY-MM-DD HH:MM:SS" rows (web UI)
+// compare at the same second precision. The expression must stay textually
+// identical to the one in idx_activity_log_datetime or the planner falls
+// back to a full scan.
+const (
+	sameSecondActivityQuery = `SELECT id FROM activity_log WHERE datetime(created_at) = datetime(?)`
+	activitySinceQuery      = `
+SELECT id, board_id, card_id, action, details, agent, created_at, datetime(created_at) AS bucket
+FROM activity_log
+WHERE datetime(created_at) >= datetime(?)
+ORDER BY bucket DESC, id`
+)
+
 // watermark is stored per session in `_meta` under stop_report:<session_id>.
 // `_meta` is shared with the web UI, so only keys with that prefix are touched here.
 type watermark struct {
@@ -57,7 +71,7 @@ func RecordSessionStart(db *sqlx.DB, sessionID string, now time.Time) error {
 	}
 	since := now.UTC().Format(sqliteTimeFmt)
 	var seen []string
-	if err := db.Select(&seen, `SELECT id FROM activity_log WHERE datetime(created_at) = datetime(?)`, since); err != nil {
+	if err := db.Select(&seen, sameSecondActivityQuery, since); err != nil {
 		return fmt.Errorf("load same-second activity: %w", err)
 	}
 	return saveWatermark(db, sessionID, watermark{Since: since, SeenIDs: seen}, now)
@@ -113,16 +127,9 @@ type activityRow struct {
 	Bucket string `db:"bucket"`
 }
 
-// datetime() normalises both RFC3339 ("...T...Z", written by LogActivity) and
-// SQLite's "YYYY-MM-DD HH:MM:SS" (web UI default) to the same second-precision
-// form, so rows in either format compare correctly against the watermark.
 func activitySince(db *sqlx.DB, since string) ([]activityRow, error) {
 	var rows []activityRow
-	err := db.Select(&rows, `
-SELECT id, board_id, card_id, action, details, agent, created_at, datetime(created_at) AS bucket
-FROM activity_log
-WHERE datetime(created_at) >= datetime(?)
-ORDER BY bucket DESC, id`, since)
+	err := db.Select(&rows, activitySinceQuery, since)
 	if err != nil {
 		return nil, fmt.Errorf("load activity: %w", err)
 	}

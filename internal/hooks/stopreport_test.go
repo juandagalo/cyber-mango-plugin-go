@@ -288,3 +288,39 @@ func TestReadSessionID(t *testing.T) {
 		})
 	}
 }
+
+func queryPlan(t *testing.T, testDB *sqlx.DB, query string, args ...interface{}) string {
+	t.Helper()
+	rows, err := testDB.Queryx("EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan plan row: %v", err)
+		}
+		plan = append(plan, detail)
+	}
+	return strings.Join(plan, "\n")
+}
+
+// The hooks filter on datetime(created_at), which a plain index on created_at
+// cannot serve; this pins the expression index to the exact query text.
+func TestActivityQueriesUseDatetimeExpressionIndex(t *testing.T) {
+	testDB := newTestDB(t)
+	for name, query := range map[string]string{
+		"activitySince": activitySinceQuery,
+		"sameSecond":    sameSecondActivityQuery,
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := queryPlan(t, testDB, query, "2026-09-03 10:00:00")
+			if !strings.Contains(plan, "USING INDEX idx_activity_log_datetime") {
+				t.Fatalf("expected idx_activity_log_datetime in plan, got:\n%s", plan)
+			}
+		})
+	}
+}

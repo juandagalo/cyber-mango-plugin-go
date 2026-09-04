@@ -9,7 +9,7 @@ import (
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/sqltx"
 )
 
-const currentSchemaVersion = "3"
+const currentSchemaVersion = "4"
 
 // RunMigrations runs each step (DDL, version stamp, journal row) in its own
 // transaction, so a failed step leaves the previous version fully intact.
@@ -42,6 +42,13 @@ func RunMigrations(db *sqlx.DB) error {
 			return err
 		}
 		version = "3"
+	}
+
+	if version == "3" {
+		if err := sqltx.Run(db, migrateV3ToV4); err != nil {
+			return err
+		}
+		version = "4"
 	}
 
 	if err := sqltx.Run(db, ensureDrizzleJournal); err != nil {
@@ -91,6 +98,18 @@ func migrateV2ToV3(tx *sqlx.Tx) error {
 	}
 	if err := ensureJournalTag(tx, "0003_overjoyed_reaper", 1776977991688); err != nil {
 		return fmt.Errorf("migrate v2->v3: %w", err)
+	}
+	return nil
+}
+
+// migrateV3ToV4 is Go-only: the web UI has no matching Drizzle migration, so
+// no journal tag is written.
+func migrateV3ToV4(tx *sqlx.Tx) error {
+	if err := ensureActivityLogIndexes(tx); err != nil {
+		return fmt.Errorf("migrate v3->v4: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE _meta SET value = '4' WHERE key = 'schema_version'`); err != nil {
+		return fmt.Errorf("migrate v3->v4 update schema version: %w", err)
 	}
 	return nil
 }
@@ -183,6 +202,9 @@ CREATE TABLE IF NOT EXISTS activity_log (
 	if err := ensureJournalTag(tx, "0003_overjoyed_reaper", 1776977991688); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
+	if err := ensureActivityLogIndexes(tx); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
 	if _, err := tx.Exec(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`, currentSchemaVersion); err != nil {
 		return fmt.Errorf("stamp schema version: %w", err)
 	}
@@ -216,6 +238,20 @@ func ensureCardsPhaseID(tx *sqlx.Tx) error {
 
 func ensureColumnsDescription(tx *sqlx.Tx) error {
 	return ensureColumn(tx, "columns", "description", `ALTER TABLE columns ADD COLUMN description TEXT`)
+}
+
+// idx_activity_log_datetime is an expression index: the hooks filter on
+// datetime(created_at) (see internal/hooks), and SQLite only uses it when the
+// query expression matches this text exactly.
+func ensureActivityLogIndexes(tx *sqlx.Tx) error {
+	_, err := tx.Exec(`
+CREATE INDEX IF NOT EXISTS idx_activity_log_datetime ON activity_log(datetime(created_at));
+CREATE INDEX IF NOT EXISTS idx_activity_log_board_created ON activity_log(board_id, created_at);
+`)
+	if err != nil {
+		return fmt.Errorf("create activity_log indexes: %w", err)
+	}
+	return nil
 }
 
 // SQLite has no ADD COLUMN IF NOT EXISTS, so the guard reads pragma_table_info

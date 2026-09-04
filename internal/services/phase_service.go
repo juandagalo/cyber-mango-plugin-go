@@ -25,7 +25,7 @@ func ResolvePhase(db Querier, boardID, phaseID, phaseName string) (*models.Phase
 	}
 
 	var phase models.Phase
-	err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, phaseName)
+	err := db.Get(&phase, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? AND name = ? COLLATE NOCASE`, boardID, phaseName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("NOT_FOUND: phase %q not found", phaseName)
 	}
@@ -140,7 +140,9 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 	}
 
 	var existing int
-	db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?)`, boardID, name).Scan(&existing)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND name = ? COLLATE NOCASE`, boardID, name).Scan(&existing); err != nil {
+		return nil, fmt.Errorf("check phase name: %w", err)
+	}
 	if existing > 0 {
 		return nil, fmt.Errorf("CONFLICT: phase %q already exists on this board", name)
 	}
@@ -182,7 +184,9 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 			return nil, fmt.Errorf("VALIDATION: name must be 50 characters or less")
 		}
 		var existing int
-		db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND LOWER(name) = LOWER(?) AND id != ?`, phase.BoardID, name, phaseID).Scan(&existing)
+		if err := db.QueryRow(`SELECT COUNT(*) FROM phases WHERE board_id = ? AND name = ? COLLATE NOCASE AND id != ?`, phase.BoardID, name, phaseID).Scan(&existing); err != nil {
+			return nil, fmt.Errorf("check phase name: %w", err)
+		}
 		if existing > 0 {
 			return nil, fmt.Errorf("CONFLICT: phase %q already exists on this board", name)
 		}

@@ -1614,3 +1614,62 @@ func TestGetBoardSummary_CardQueryErrorPropagates(t *testing.T) {
 		t.Errorf("error = %q, want it to keep the cause (no such table)", err)
 	}
 }
+
+// --- H11 COLLATE NOCASE lookups ---
+
+func TestFindOrCreateTag_MatchesCaseInsensitively(t *testing.T) {
+	testDB := newTestDB(t)
+	board, _ := ResolveBoard(testDB, "")
+	created, err := ManageTags(testDB, "create", board.ID, "", "", "Bug", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx := testDB.MustBegin()
+	defer tx.Rollback()
+	found, err := FindOrCreateTag(tx, board.ID, "bUG")
+	if err != nil {
+		t.Fatalf("find tag: %v", err)
+	}
+	if found.ID != created.(*models.Tag).ID {
+		t.Errorf("want existing tag %s, got %s", created.(*models.Tag).ID, found.ID)
+	}
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM tags WHERE board_id = ?`, board.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("want 1 tag after case-insensitive match, got %d", count)
+	}
+}
+
+func TestCreatePhase_DuplicateNameIsCaseInsensitive(t *testing.T) {
+	testDB := newTestDB(t)
+	_, err := ManagePhases(testDB, "create", "", "", "DEVELOPMENT", "", nil)
+	if err == nil || !strings.HasPrefix(err.Error(), "CONFLICT:") {
+		t.Fatalf("want CONFLICT for a case-insensitive duplicate, got %v", err)
+	}
+}
+
+func TestUpdatePhase_ConflictOnRenameIsCaseInsensitive(t *testing.T) {
+	testDB := newTestDB(t)
+	list, _ := ManagePhases(testDB, "list", "", "", "", "", nil)
+	phases := list.([]models.Phase)
+	_, err := ManagePhases(testDB, "update", "", phases[0].ID, strings.ToUpper(phases[1].Name), "", nil)
+	if err == nil || !strings.HasPrefix(err.Error(), "CONFLICT:") {
+		t.Fatalf("want CONFLICT for a case-insensitive rename clash, got %v", err)
+	}
+}
+
+func TestCreatePhase_NameCheckErrorPropagates(t *testing.T) {
+	testDB := newTestDB(t)
+	breakTable(t, testDB, "phases")
+
+	_, err := ManagePhases(testDB, "create", "", "", "Testing", "", nil)
+	if err == nil {
+		t.Fatal("expected a DB error")
+	}
+	if !strings.Contains(err.Error(), "check phase name") || !strings.Contains(err.Error(), "no such table") {
+		t.Errorf("duplicate check failure must surface, not fall through to the insert, got %v", err)
+	}
+}
