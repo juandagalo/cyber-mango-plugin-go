@@ -39,44 +39,42 @@ func ResolveBoard(db Querier, boardID string) (*models.Board, error) {
 	return &board, nil
 }
 
+// resolveBoardID returns boardID unchanged when set, else the oldest board's ID.
+func resolveBoardID(db Querier, boardID string) (string, error) {
+	if boardID != "" {
+		return boardID, nil
+	}
+	board, err := ResolveBoard(db, "")
+	if err != nil {
+		return "", err
+	}
+	return board.ID, nil
+}
+
 // ResolveColumn matches by ID, then by case-insensitive name, then falls back to the board's first column. It never errors on empty input.
 func ResolveColumn(db Querier, boardID, columnID, columnName string) (*models.Column, error) {
-	var col models.Column
-
 	if columnID != "" {
-		err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, columnID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("NOT_FOUND: column not found")
-		}
-		if err != nil {
-			return nil, fmt.Errorf("get column: %w", err)
-		}
-		return &col, nil
+		return getColumn(db, columnID)
+	}
+
+	cols, err := listColumns(db, boardID)
+	if err != nil {
+		return nil, err
 	}
 
 	if columnName != "" {
-		cols := []models.Column{}
-		if err := db.Select(&cols, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, boardID); err != nil {
-			return nil, fmt.Errorf("query columns: %w", err)
-		}
-		lower := strings.ToLower(columnName)
-		for _, c := range cols {
-			if strings.ToLower(c.Name) == lower {
-				col = c
-				return &col, nil
+		for i := range cols {
+			if strings.EqualFold(cols[i].Name, columnName) {
+				return &cols[i], nil
 			}
 		}
 		return nil, fmt.Errorf("NOT_FOUND: column %q not found", columnName)
 	}
 
-	err := db.Get(&col, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position LIMIT 1`, boardID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if len(cols) == 0 {
 		return nil, fmt.Errorf("NOT_FOUND: no columns on board")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("get column: %w", err)
-	}
-	return &col, nil
+	return &cols[0], nil
 }
 
 // cardTagRow carries the owning card_id next to the tag so one query can load
@@ -105,9 +103,9 @@ func GetBoard(db *sqlx.DB, boardID string) (*models.Board, error) {
 	}
 	board.Phases = phases
 
-	columns := []models.Column{}
-	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
-		return nil, fmt.Errorf("query columns: %w", err)
+	columns, err := listColumns(db, board.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	cards := []models.Card{}
@@ -170,9 +168,9 @@ func GetBoardSummary(db *sqlx.DB, boardID string) (*models.BoardSummary, error) 
 		return nil, err
 	}
 
-	columns := []models.Column{}
-	if err := db.Select(&columns, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE board_id = ? ORDER BY position`, board.ID); err != nil {
-		return nil, fmt.Errorf("query columns: %w", err)
+	columns, err := listColumns(db, board.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	phases := []models.Phase{}

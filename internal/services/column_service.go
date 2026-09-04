@@ -1,6 +1,8 @@
 package services
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +11,29 @@ import (
 	"github.com/juandagalo/cyber-mango-plugin-go/internal/models"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 )
+
+const columnSelect = `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns`
+
+func getColumn(q Querier, id string) (*models.Column, error) {
+	var col models.Column
+	err := q.Get(&col, columnSelect+` WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("NOT_FOUND: column not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get column: %w", err)
+	}
+	return &col, nil
+}
+
+// listColumns returns the board's columns ordered by position; never nil.
+func listColumns(q Querier, boardID string) ([]models.Column, error) {
+	cols := []models.Column{}
+	if err := q.Select(&cols, columnSelect+` WHERE board_id = ? ORDER BY position`, boardID); err != nil {
+		return nil, fmt.Errorf("query columns: %w", err)
+	}
+	return cols, nil
+}
 
 func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimit *int) (*models.Column, error) {
 	board, err := ResolveBoard(db, boardID)
@@ -19,8 +44,9 @@ func CreateColumn(db *sqlx.DB, boardID, name, color, description string, wipLimi
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: name is required")
 	}
-	if color == "" {
-		color = "#6b7280"
+	color, err = normalizeColor(color, "#6b7280")
+	if err != nil {
+		return nil, err
 	}
 
 	var descPtr *string

@@ -1673,3 +1673,93 @@ func TestCreatePhase_NameCheckErrorPropagates(t *testing.T) {
 		t.Errorf("duplicate check failure must surface, not fall through to the insert, got %v", err)
 	}
 }
+
+func TestCreateColumn_DefaultsColor(t *testing.T) {
+	testDB := newTestDB(t)
+	col, err := CreateColumn(testDB, "", "QA", "", "", nil)
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+	if col.Color != "#6b7280" {
+		t.Errorf("want default color '#6b7280', got %q", col.Color)
+	}
+}
+
+func TestCreateColumn_RejectsInvalidColor(t *testing.T) {
+	testDB := newTestDB(t)
+	_, err := CreateColumn(testDB, "", "QA", "red", "", nil)
+	want := "VALIDATION: color must be a 7-character hex color (e.g. #6b7280)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("want %q, got %v", want, err)
+	}
+	var count int
+	testDB.QueryRow(`SELECT COUNT(*) FROM columns WHERE name = 'QA'`).Scan(&count)
+	if count != 0 {
+		t.Errorf("invalid color must not be stored, found %d column(s)", count)
+	}
+}
+
+func TestValidatePriority(t *testing.T) {
+	cases := []struct {
+		priority string
+		wantErr  string
+	}{
+		{"low", ""},
+		{"medium", ""},
+		{"high", ""},
+		{"critical", ""},
+		{"", `VALIDATION: invalid priority ""`},
+		{"urgent", `VALIDATION: invalid priority "urgent"`},
+		{"High", `VALIDATION: invalid priority "High"`},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%q", tc.priority), func(t *testing.T) {
+			err := validatePriority(tc.priority)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("want no error, got %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("want %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeColor(t *testing.T) {
+	cases := []struct {
+		name     string
+		color    string
+		fallback string
+		want     string
+		wantErr  string
+	}{
+		{"empty uses phase fallback", "", "#00FFFF", "#00FFFF", ""},
+		{"empty uses tag fallback", "", "#3b82f6", "#3b82f6", ""},
+		{"empty uses column fallback", "", "#6b7280", "#6b7280", ""},
+		{"valid color kept", "#ff0000", "#00FFFF", "#ff0000", ""},
+		{"no hash prefix", "ff0000", "#00FFFF", "", "VALIDATION: color must be a 7-character hex color (e.g. #00FFFF)"},
+		{"too short", "#fff", "#3b82f6", "", "VALIDATION: color must be a 7-character hex color (e.g. #3b82f6)"},
+		{"too long", "#ff00000", "#6b7280", "", "VALIDATION: color must be a 7-character hex color (e.g. #6b7280)"},
+		{"named color", "red", "#00FFFF", "", "VALIDATION: color must be a 7-character hex color (e.g. #00FFFF)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeColor(tc.color, tc.fallback)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("want no error, got %v", err)
+				}
+				if got != tc.want {
+					t.Errorf("want %q, got %q", tc.want, got)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("want %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}

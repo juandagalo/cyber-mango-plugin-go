@@ -42,11 +42,10 @@ func createCardTx(tx *sqlx.Tx, boardID, columnID, columnName, title, description
 		return nil, fmt.Errorf("VALIDATION: title is required")
 	}
 
-	validPriorities := map[string]bool{"low": true, "medium": true, "high": true, "critical": true}
 	if priority == "" {
 		priority = "medium"
-	} else if !validPriorities[priority] {
-		return nil, fmt.Errorf("VALIDATION: invalid priority %q", priority)
+	} else if err := validatePriority(priority); err != nil {
+		return nil, err
 	}
 
 	var resolvedPhaseID *string
@@ -131,9 +130,10 @@ func UpdateCard(db *sqlx.DB, cardID, title, description, priority, phaseID, phas
 		boardID = resolvedBoardID
 	}
 
-	validPriorities := map[string]bool{"low": true, "medium": true, "high": true, "critical": true, "": true}
-	if !validPriorities[priority] {
-		return nil, fmt.Errorf("VALIDATION: invalid priority %q", priority)
+	if priority != "" {
+		if err := validatePriority(priority); err != nil {
+			return nil, err
+		}
 	}
 
 	if title != "" {
@@ -205,16 +205,12 @@ func MoveCard(db *sqlx.DB, cardID, boardID, columnID, columnName string, positio
 		return nil, err
 	}
 
-	var currentCol models.Column
-	err = db.Get(&currentCol, `SELECT id, board_id, name, color, description, wip_limit, position, created_at, updated_at FROM columns WHERE id = ?`, card.ColumnID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("NOT_FOUND: current column not found")
-	}
+	currentCol, err := getColumn(db, card.ColumnID)
 	if err != nil {
-		return nil, fmt.Errorf("get current column: %w", err)
+		return nil, err
 	}
 
-	col := &currentCol
+	col := currentCol
 	if columnID != "" || columnName != "" {
 		if boardID == "" {
 			boardID = currentCol.BoardID

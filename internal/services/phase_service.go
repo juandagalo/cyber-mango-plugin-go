@@ -91,12 +91,9 @@ func ParseOrderedIDs(raw string) ([]string, error) {
 }
 
 func listPhases(db *sqlx.DB, boardID string) ([]models.Phase, error) {
-	if boardID == "" {
-		board, err := ResolveBoard(db, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(db, boardID)
+	if err != nil {
+		return nil, err
 	}
 	var phases []models.Phase
 	if err := db.Select(&phases, `SELECT id, board_id, name, color, position, created_at, updated_at FROM phases WHERE board_id = ? ORDER BY position`, boardID); err != nil {
@@ -109,12 +106,9 @@ func listPhases(db *sqlx.DB, boardID string) ([]models.Phase, error) {
 }
 
 func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error) {
-	if boardID == "" {
-		board, err := ResolveBoard(db, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(db, boardID)
+	if err != nil {
+		return nil, err
 	}
 
 	if name == "" {
@@ -124,11 +118,9 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 		return nil, fmt.Errorf("VALIDATION: name must be 50 characters or less")
 	}
 
-	if color == "" {
-		color = "#00FFFF"
-	}
-	if !strings.HasPrefix(color, "#") || len(color) != 7 {
-		return nil, fmt.Errorf("VALIDATION: color must be a 7-character hex color (e.g. #00FFFF)")
+	color, err = normalizeColor(color, "#00FFFF")
+	if err != nil {
+		return nil, err
 	}
 
 	var boardExists int
@@ -154,7 +146,7 @@ func createPhase(db *sqlx.DB, boardID, name, color string) (*models.Phase, error
 	id, _ := gonanoid.New(12)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := db.Exec(
+	_, err = db.Exec(
 		`INSERT INTO phases (id, board_id, name, color, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, boardID, name, color, position, now, now,
 	)
@@ -194,10 +186,9 @@ func updatePhase(db *sqlx.DB, phaseID, name, color string) (*models.Phase, error
 	}
 
 	if color != "" {
-		if !strings.HasPrefix(color, "#") || len(color) != 7 {
-			return nil, fmt.Errorf("VALIDATION: color must be a 7-character hex color (e.g. #00FFFF)")
+		if phase.Color, err = normalizeColor(color, "#00FFFF"); err != nil {
+			return nil, err
 		}
-		phase.Color = color
 	}
 
 	phase.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -252,12 +243,9 @@ func reorderPhases(db *sqlx.DB, boardID string, orderedIDs []string) ([]models.P
 }
 
 func reorderPhasesTx(tx *sqlx.Tx, boardID string, orderedIDs []string) ([]models.Phase, error) {
-	if boardID == "" {
-		board, err := ResolveBoard(tx, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(tx, boardID)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(orderedIDs) == 0 {

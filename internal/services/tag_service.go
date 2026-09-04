@@ -45,27 +45,22 @@ func createTag(db *sqlx.DB, boardID, name, color string) (*models.Tag, error) {
 
 // createTagTx writes the tag and its activity row, so q must be a *sqlx.Tx.
 func createTagTx(q Querier, boardID, name, color string) (*models.Tag, error) {
-	if boardID == "" {
-		board, err := ResolveBoard(q, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(q, boardID)
+	if err != nil {
+		return nil, err
 	}
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: name is required")
 	}
-	if color == "" {
-		color = "#3b82f6"
-	}
-	if !strings.HasPrefix(color, "#") || len(color) != 7 {
-		return nil, fmt.Errorf("VALIDATION: color must be a 7-character hex color (e.g. #3b82f6)")
+	color, err = normalizeColor(color, "#3b82f6")
+	if err != nil {
+		return nil, err
 	}
 
 	id, _ := gonanoid.New(12)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := q.Exec(
+	_, err = q.Exec(
 		`INSERT INTO tags (id, board_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, boardID, name, color, now,
 	)
@@ -89,16 +84,13 @@ func FindOrCreateTag(q Querier, boardID, name string) (*models.Tag, error) {
 	if name == "" {
 		return nil, fmt.Errorf("VALIDATION: tag name is required")
 	}
-	if boardID == "" {
-		board, err := ResolveBoard(q, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(q, boardID)
+	if err != nil {
+		return nil, err
 	}
 
 	var existing models.Tag
-	err := q.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND name = ? COLLATE NOCASE`, boardID, name)
+	err = q.Get(&existing, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? AND name = ? COLLATE NOCASE`, boardID, name)
 	if err == nil {
 		return &existing, nil
 	}
@@ -168,12 +160,9 @@ func removeTag(db *sqlx.DB, cardID, tagID string) (map[string]interface{}, error
 }
 
 func listTags(db *sqlx.DB, boardID string) ([]models.Tag, error) {
-	if boardID == "" {
-		board, err := ResolveBoard(db, "")
-		if err != nil {
-			return nil, err
-		}
-		boardID = board.ID
+	boardID, err := resolveBoardID(db, boardID)
+	if err != nil {
+		return nil, err
 	}
 	var tags []models.Tag
 	if err := db.Select(&tags, `SELECT id, board_id, name, color, created_at FROM tags WHERE board_id = ? ORDER BY name`, boardID); err != nil {

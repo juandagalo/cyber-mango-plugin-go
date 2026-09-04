@@ -47,7 +47,7 @@ Do NOT run `make build` after code changes automatically — only build when exp
 |---------|-------|---------|
 | `db` | `connection.go`, `migration.go`, `seed.go`, `db_test.go` | DB connection with pragmas (WAL, FK, busy_timeout), schema migration (versioned via `_meta` table), default board seed. |
 | `models` | `models.go` | Data structs: Board, Column, Card, Phase, Tag, ActivityLog, BoardSummary, ColumnSummary. All use `db:` and `json:` struct tags. |
-| `services` | `board_service.go`, `card_service.go`, `column_service.go`, `tag_service.go`, `phase_service.go`, `activity_service.go`, `services_test.go` | Business logic. All functions take `*sqlx.DB` as first arg (no service structs). Activity logging on every write operation. |
+| `services` | `board_service.go`, `card_service.go`, `column_service.go`, `tag_service.go`, `phase_service.go`, `activity_service.go`, `validate.go`, `querier.go`, `services_test.go` | Business logic. Public functions take `*sqlx.DB` as first arg (no service structs). Row lookups go through `getCard`/`getColumn`/`getPhase`/`getTag`/`listColumns`; `validatePriority`, `normalizeColor` and `resolveBoardID` are the single sources for validation and first-board fallback. Activity logging on every write operation. |
 | `hooks` | `startreport.go`, `stopreport.go`, tests | Logic behind both hook binaries: stdin `session_id` parsing, board summary text, per-session activity watermark in `_meta` (`stop_report:<session_id>`, JSON with `since`, `seen_ids`, `updated_at`; pruned after 7 days), plain-text activity summary. |
 | `sqltx` | `sqltx.go`, `sqltx_test.go` | `Run(db, fn)`: begin/commit, rollback on error (returned unchanged) or panic. |
 | `mcp` | `server.go`, `handlers.go` | MCP tool registration and handler dispatch. `Handlers` struct holds `*sqlx.DB`. Uses `req.GetString(key, "")` (mcp-go v0.44.0 API). |
@@ -135,7 +135,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Testing
 
-- 109 tests total: 20 in `internal/db`, 72 in `internal/services`, 3 in `internal/sqltx`, 14 in `internal/hooks`
+- 113 tests total: 20 in `internal/db`, 76 in `internal/services`, 3 in `internal/sqltx`, 14 in `internal/hooks`
 - All tests use in-memory SQLite (`:memory:`) — no external dependencies
 - `newTestDB(t)` helper creates a fresh DB with migrations + seed per test
 - Run: `go test ./...`
@@ -178,7 +178,7 @@ Known pending items:
 
 ### Hardening pass (started 2026-09-03)
 
-Audit findings being fixed with TDD, in this order. Mark each `[x]` when its test is green and the change is committed.
+Audit findings fixed with TDD, one commit each, closed 2026-09-04. Kept as a record of the invariants now covered by tests.
 
 - [x] H1 Pragmas per connection: apply via DSN `_pragma=` and `SetMaxOpenConns(1)` (`internal/db/connection.go`)
 - [x] H2 `move_card` with only `position` must keep the current column (`internal/services/card_service.go`)
@@ -191,7 +191,7 @@ Audit findings being fixed with TDD, in this order. Mark each `[x]` when its tes
 - [x] H9 `GetBoard` runs 5 fixed queries (board, phases, columns, cards, card tags) and assembles in memory; tags on a card ordered by name. `StartReport` calls `GetBoard` once and derives every count from the tree
 - [x] H10 `GetBoardSummary` runs 4 fixed queries (board, columns, phases, one `GROUP BY column_id, priority, phase_id` aggregate) and folds in memory; query errors propagate
 - [x] H11 Schema v4: `activity_log` indexes (`ensureActivityLogIndexes`); tag/phase name lookups use `name = ? COLLATE NOCASE` (unique indexes untouched); phase duplicate-check errors propagate
-- [ ] H12 Deduplicate column SELECT, priority/color validation, first-board resolution
+- [x] H12 Deduplicate column SELECT (`columnSelect`, `getColumn`, `listColumns`), priority/color validation (`validate.go`), first-board resolution (`resolveBoardID`). `create_column` now rejects an invalid color
 - [x] H13 `session-start` phase list sorted by position, not map order (closed by H9's `StartReport` rewrite)
 
 Update this section when a feature ships or a pending item closes.
