@@ -4,7 +4,7 @@ Claude Code plugin that provides a cyberpunk-themed kanban board manageable by C
 
 ## Quick Reference
 
-- **Version**: 0.2.0
+- **Version**: 0.3.0
 - **Module**: `github.com/juandagalo/cyber-mango-plugin-go`
 - **Go**: 1.23+
 - **MCP SDK**: `github.com/mark3labs/mcp-go` v0.44.0
@@ -145,7 +145,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 - **Activity timestamps come in two formats** — `LogActivity` writes RFC3339 (`...T...Z`); the web UI relies on SQLite's `datetime('now')` default (`YYYY-MM-DD HH:MM:SS`). Never compare `created_at` as a string; wrap both sides in `datetime()` as `internal/hooks` does.
 - **Hook output is plain text** — Claude Code does NOT render markdown in hook `systemMessage`. Use CAPS and indentation for visual hierarchy, never `##`, `**`, or emojis.
 - **Hooks don't support `env` field** — Unlike `.mcp.json`, `hooks.json` has no `env` field. Inline `${VAR}` substitution is also broken for SessionStart hooks (known Claude Code bugs). This is why `CLAUDE_PLUGIN_DATA` is excluded from DB path resolution — both MCP server and hooks must converge on `~/.cyber-mango/kanban.db`.
-- **Version lives in 3 places** — `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `internal/mcp/server.go` (`NewMCPServer("cyber-mango", "0.2.0", ...)`). Keep them in sync on version bumps.
+- **Version lives in 3 places** — `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `internal/mcp/server.go` (`NewMCPServer("cyber-mango", "0.3.0", ...)`). Keep them in sync on version bumps.
 - **`.mcp.json` shows "Failed to connect" inside the plugin source dir** — `${CLAUDE_PLUGIN_ROOT}` isn't set when working inside the plugin repo itself. This is expected. The plugin entry works from any other directory.
 - **Double slash in resolved path** — `source: "./"` in marketplace.json can produce `C:/path//bin/mcp-server.exe`. Harmless.
 - **Shared DB with web UI** — The plugin and the [cyber-mango web UI](https://github.com/juandagalo/cyber-mango) share the same SQLite database. Changes from either side appear instantly.
@@ -168,7 +168,7 @@ Error prefixes: `VALIDATION:`, `NOT_FOUND:`, `CONFLICT:` — all returned as `mc
 
 ## Status and Pending Work
 
-Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0).
+Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` column move, card template convention, column descriptions (schema v3, v0.2.0), hardening pass H1-H13 with per-session stop summaries, activity_log indexes, transactional writes and trimmed skills (schema v4, v0.3.0).
 
 Known pending items:
 
