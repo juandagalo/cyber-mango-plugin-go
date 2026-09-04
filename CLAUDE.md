@@ -173,10 +173,12 @@ Delivered features, in order: Go rewrite (v0.1.0), card phases, `update_card` co
 
 End-to-end checks recorded on 2026-09-04, run from a directory outside the repo against a fresh DB via `CYBER_MANGO_DB_PATH`: `session-start` prints the board summary, the MCP server lists 11 tools and serves `create_card` and `update_column` over stdio JSON-RPC, and `session-stop` reports the activity for the session id, for an unknown id and with no stdin. Line endings are normalized by `.gitattributes` (`* text=auto eol=lf`); the index was already LF, so the working tree only needed a re-checkout.
 
+Shared-DB round trip verified on 2026-09-04 against a copy of the real `~/.cyber-mango/kanban.db` (schema v3, Drizzle-first) with the web UI checked out at `C:\Nexer\kanban-board` (`CYBER_MANGO_DB_PATH` pointed both sides at the copy): the v0.4.0 `session-start` migrated it to v4 and created the two activity_log indexes; `update_column` and `create_card` from the Go side were visible through the web UI's `GET /api/boards/{id}`; a card created and a column description patched through the web UI's REST API were visible through `get_board`; the web UI started cleanly on the Go-migrated file and left `__drizzle_migrations` untouched.
+
 Known pending items:
 
-- Shared-DB round trip against the web UI is not verified live: the web UI is not installed on the dev machine. A read-only inspection of `~/.cyber-mango/kanban.db` confirms both `__drizzle_migrations` formats coexist and `columns.description` is present.
-- `bin/` and the installed plugin cache (`~/.claude/plugins/cache/cyber-mango-marketplace/cyber-mango/0.2.0`) still hold binaries from 2026-04-23, so the shared DB is still at schema v3 and none of the hardening is live. Rebuild with `make build`, then `claude plugin update cyber-mango`; the v4 migration runs on the next start.
+- The web UI does not write to `activity_log`, so the Stop hook never reports changes made through the browser. That is a web UI gap, not a plugin one.
+- The installed plugin cache (`~/.claude/plugins/cache/cyber-mango-marketplace/cyber-mango/0.2.0`) still holds binaries from 2026-04-23. `bin/` was rebuilt at v0.4.0 on 2026-09-04; run `claude plugin update cyber-mango` so sessions pick it up. The v4 migration runs on the next start against the real DB.
 
 ### Hardening pass (started 2026-09-03)
 
